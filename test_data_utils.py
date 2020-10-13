@@ -2,7 +2,34 @@ from pathlib import Path
 import numpy as np
 import unittest
 
-from mogwai.utils.data_loading import load_a3m_msa, parse_cf
+from mogwai.utils.data_loading import one_hot, load_a3m_msa, parse_cf
+
+
+class TestOneHot(unittest.TestCase):
+    def setUp(self):
+        self.msa = np.array(
+            [
+                [2, 5, 4],
+                [3, 2, 19],
+            ]
+        )
+        self.oh = one_hot(self.msa)
+
+    def test_shape(self):
+        self.assertTupleEqual(self.oh.shape, (2, 3, 20))
+
+    def test_argmax(self):
+        idx = np.argmax(self.oh, -1)
+        np.testing.assert_array_equal(idx, self.msa)
+
+    def test_pad(self):
+        padded_msa = np.array([[12, 13, -1, -1], [-1, 9, -1, 8]])
+        padded_idx = np.array([[False, False, True, True], [True, False, True, False]])
+
+        oh = one_hot(padded_msa)
+        test_padded_idx = np.sum(oh, -1) == 0
+
+        np.testing.assert_array_equal(padded_idx, test_padded_idx)
 
 
 class TestA3MLoading(unittest.TestCase):
@@ -15,16 +42,10 @@ class TestA3MLoading(unittest.TestCase):
         self.msa, self.ms, _, self.ref = load_a3m_msa(self.path)
 
     def test_msa_shape(self):
-        N, L, A = self.msa.shape
-        self.assertEqual(N, 7569)
-        self.assertEqual(L, 107)
-        self.assertEqual(A, 20)
+        self.assertTupleEqual(self.msa.shape, (7569, 107, 20))
 
     def test_ms_shape(self):
-        N, L, A = self.ms.shape
-        self.assertEqual(N, 7569)
-        self.assertEqual(L, 162)
-        self.assertEqual(A, 20)
+        self.assertTupleEqual(self.ms.shape, (7569, 162, 20))
 
     def test_msa_indel(self):
         # Test for gaps at start of second seq in msa.
@@ -62,7 +83,7 @@ class TestCfLoading(unittest.TestCase):
 
     def test_contact_shape(self):
         shape = self.contacts.shape
-        self.assertEqual(shape, (107, 107))
+        self.assertTupleEqual(shape, (107, 107))
 
     def test_zero_contacts(self):
         num_zero_contacts = np.sum(self.contacts == 0)
