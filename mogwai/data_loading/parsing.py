@@ -59,9 +59,6 @@ def load_npz_data(pdb_npz_file: Union[Path, str], c_beta_cutoff: int = 8):
     msa = fam_data["msa"]
 
     ref = msa[0]
-    len_ref = len(ref)
-    print("N over L:\t{}".format(len(msa) / len_ref))
-    print("Length of reference:\t{}".format(len_ref))
     # convert gaps (and pads) to 0s, one hot the rest
     msa = one_hot(msa, cat=20)
 
