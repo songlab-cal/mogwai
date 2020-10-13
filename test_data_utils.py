@@ -2,7 +2,7 @@ from pathlib import Path
 import numpy as np
 import unittest
 
-from mogwai.utils.data_loading import one_hot, load_a3m_msa, parse_cf
+from mogwai.data_loading import one_hot, load_a3m_msa, parse_cf
 
 
 class TestOneHot(unittest.TestCase):
