@@ -1,7 +1,7 @@
 import torch
 import unittest
 
-from mogwai.utils.metrics import contact_auc, precision_at_cutoff
+from mogwai.metrics import contact_auc, precision_at_cutoff
 
 
 class TestPrecision(unittest.TestCase):
