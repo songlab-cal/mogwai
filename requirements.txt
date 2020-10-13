@@ -1,5 +1,5 @@
 biopython
 numpy
-pytorch-lightning
+pytorch-lightning==1.0.0
 scipy
 torch
