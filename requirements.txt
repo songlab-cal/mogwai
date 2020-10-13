@@ -1,4 +1,5 @@
 biopython
 numpy
 pytorch-lightning
+scipy
 torch
