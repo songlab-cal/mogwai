@@ -26,6 +26,7 @@ class A3M_MSA_DataModule(pl.LightningDataModule):
         ref_int = np.array([a2n[aa] for aa in reference])
         self.reference = torch.tensor(one_hot(ref_int))
         self.dims = msa.shape
+        self.pssm = msa.sum(0)
 
     def train_dataloader(self):
         return DataLoader(

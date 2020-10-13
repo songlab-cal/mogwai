@@ -27,6 +27,7 @@ class NPZ_MSA_DataModule(pl.LightningDataModule):
         self.msa_dataset = TensorDataset(msa)
         self.true_contacts = torch.FloatTensor(family_data.contacts)
         self.dims = msa.shape
+        self.pssm = msa.sum(0)
 
     def train_dataloader(self):
         return DataLoader(

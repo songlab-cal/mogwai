@@ -16,6 +16,9 @@ class TestA3MDataModule(unittest.TestCase):
         batch = next(iter(self.dm.train_dataloader()))[0]
         self.assertTupleEqual(batch.shape, (64, 107, 20))
 
+    def test_pssm_shape(self):
+        self.assertTupleEqual(self.dm.pssm.shape, (107, 20))
+
 
 class TestNPZDataModule(unittest.TestCase):
     def setUp(self):
@@ -32,6 +35,9 @@ class TestNPZDataModule(unittest.TestCase):
 
     def test_contact_shape(self):
         self.assertTupleEqual(self.dm.true_contacts.shape, (118, 118))
+
+    def test_pssm_shape(self):
+        self.assertTupleEqual(self.dm.pssm.shape, (118, 20))
 
 
 if __name__ == "__main__":
