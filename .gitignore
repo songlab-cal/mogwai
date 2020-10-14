@@ -1,3 +1,6 @@
+# Pytorch-lightning
+lightning_logs/
+
 # Data
 data/
 
