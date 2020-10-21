@@ -3,6 +3,8 @@ from torch.optim.optimizer import Optimizer
 
 
 class GremlinAdam(torch.optim.Adam):
+    """Modified Adam optimizer for convex Potts model structure learning."""
+
     @torch.no_grad()
     def step(self, closure=None):
         loss = None

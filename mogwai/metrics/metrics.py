@@ -8,11 +8,20 @@ from scipy.stats import entropy
 def precision_at_cutoff(
     pred: torch.Tensor,
     meas: torch.Tensor,
-    cutoff: int = 1,
     thresh: float = 0.01,
     superdiag: int = 6,
+    cutoff: int = 1,
 ):
-    """Computes precision for top L/10, L/9, ... L"""
+    """Computes precision for top L/k contacts.
+
+    Args:
+        pred (tensor): Predicted contact scores or probabilities.
+        meas (tensor): Binary matrix of true contacts.
+        thresh (float, optional): Threshold at which to call a predicted contact.
+        superdiag (int, optional): Ignore all true and predicted contacts from diag to superdiag.
+        cutoff (int, optional): Only compute precision of top L/cutoff predictions.
+    """
+
     # Subset everything above superdiag
     eval_idx = np.triu_indices_from(meas, superdiag)
     pred_, meas_ = pred[eval_idx], meas[eval_idx]
@@ -38,6 +47,16 @@ def contact_auc(
     superdiag: int = 6,
     cutoff_range: List[int] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
 ):
+    """Compute modified Area Under PR Curve.
+
+    Args:
+        pred (tensor): Predicted contact scores or probabilities.
+        meas (tensor): Binary matrix of true contacts.
+        thresh (float, optional): Threshold at which to call a predicted contact.
+        superdiag (int, optional): Ignore all true and predicted contacts from diag to superdiag.
+        cutoff_range (List[int], optional): Range of precision cutoffs to use for averaging.
+    """
+
     # Nick: This does not agree with normal AUPR, but instead computes
     # precision for top L/10, L/9, ... then averages them together.
     # Compared to normal precision this puts more weight on a small number
@@ -52,7 +71,7 @@ def contact_auc(
     # aupr = average_precision_score(meas_ > thresh, pred_)
 
     binned_precisions = [
-        precision_at_cutoff(pred, meas, c, thresh, superdiag) for c in cutoff_range
+        precision_at_cutoff(pred, meas, thresh, superdiag, c) for c in cutoff_range
     ]
     return torch.stack(binned_precisions, 0).mean()
 

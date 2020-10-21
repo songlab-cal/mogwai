@@ -6,11 +6,21 @@ import torch
 def plot_colored_preds_on_trues(
     pred: torch.Tensor,
     meas: torch.Tensor,
-    cutoff: int = 1,
     thresh: float = 1e-4,
     superdiag: int = 6,
+    cutoff: int = 1,
     point_size: int = 1,
 ):
+    """Plot contact map predictions overlayed on true contacts.
+
+    Args:
+        pred (tensor): Predicted contact scores or probabilities.
+        meas (tensor): Binary matrix of true contacts.
+        thresh (float, optional): Threshold at which to call a predicted contact.
+        superdiag (int, optional): Ignore all true and predicted contacts from diag to superdiag.
+        cutoff (int, optional): Only compute precision of top L/cutoff predictions.
+        point_size (int, optional): Size of each colored point in the plot.
+    """
     # Ignore nearby contacts
     eval_idx = np.triu_indices_from(meas, superdiag)
     pred_, meas_ = pred[eval_idx], meas[eval_idx]

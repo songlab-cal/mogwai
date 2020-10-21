@@ -10,6 +10,16 @@ from ..metrics import contact_auc, precision_at_cutoff
 
 
 class BaseModel(pl.LightningModule):
+    """Base model containing shared init and functionality for all single-MSA models.
+
+    Args:
+        num_seqs (int): Number of sequences in MSA.
+        msa_length (int): Length of MSA.
+        learning_rate (float): Learning rate for training model.
+        vocab_size (int, optional): Alphabet size of MSA.
+        true_contacts (tensor, optional): True contacts for family. Used to compute metrics while training.
+    """
+
     def __init__(
         self,
         num_seqs: int,
@@ -23,9 +33,8 @@ class BaseModel(pl.LightningModule):
         self.msa_length = msa_length
         self.vocab_size = vocab_size
 
-        self.learning_rate = learning_rate
         if true_contacts is not None:
-            self._true_contacts = true_contacts
+            self.register_buffer("_true_contacts", true_contacts)
             self.has_true_contacts = True
         else:
             self.has_true_contacts = False
@@ -79,7 +88,7 @@ class BaseModel(pl.LightningModule):
         if do_apc:
             contacts = apc(contacts)
         return precision_at_cutoff(
-            contacts, self._true_contacts, cutoff, thresh, superdiag
+            contacts, self._true_contacts, cutoff, thresh, superdiag  # type: ignore
         )
 
     @torch.no_grad()
@@ -98,5 +107,5 @@ class BaseModel(pl.LightningModule):
         if do_apc:
             contacts = apc(contacts)
         return contact_auc(
-            contacts, self._true_contacts, thresh, superdiag, cutoff_range
+            contacts, self._true_contacts, thresh, superdiag, cutoff_range  # type: ignore
         )

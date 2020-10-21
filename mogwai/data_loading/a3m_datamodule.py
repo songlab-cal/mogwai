@@ -11,21 +11,25 @@ from .parsing import a2n, one_hot, load_a3m_msa
 
 
 class A3M_MSADataModule(pl.LightningDataModule):
+    """Creates dataset from A3M file of an MSA.
+
+    Args:
+        a3m_file (Union[str, Path]): Path to a3m file.
+        batch_size (int, optional): Batch size for DataLoader.
+    """
+
     def __init__(
         self,
         a3m_file: Union[str, Path],
         batch_size: int = 64,
-        true_contacts: Optional[np.ndarray] = None,
     ):
+        super().__init__()
         a3m_file = Path(a3m_file)
         if not a3m_file.exists():
             raise FileNotFoundError(a3m_file)
 
         self.a3m_file = a3m_file
         self.batch_size = batch_size
-        # TODO: Will storing true_contacts here instead of setup cause
-        # issues with distributed training?
-        self.true_contacts = true_contacts
 
     def setup(self):
         msa, _, _, reference = load_a3m_msa(self.a3m_file)
