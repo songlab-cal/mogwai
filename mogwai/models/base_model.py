@@ -32,6 +32,7 @@ class BaseModel(pl.LightningModule):
         self.num_seqs = num_seqs
         self.msa_length = msa_length
         self.vocab_size = vocab_size
+        self.learning_rate = learning_rate
 
         if true_contacts is not None:
             self.register_buffer("_true_contacts", true_contacts)
