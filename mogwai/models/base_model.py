@@ -25,7 +25,7 @@ class BaseModel(pl.LightningModule):
 
         self.learning_rate = learning_rate
         if true_contacts is not None:
-            self.true_contacts = true_contacts
+            self._true_contacts = true_contacts
             self.has_true_contacts = True
         else:
             self.has_true_contacts = False
@@ -79,7 +79,7 @@ class BaseModel(pl.LightningModule):
         if do_apc:
             contacts = apc(contacts)
         return precision_at_cutoff(
-            contacts, self.true_contacts, cutoff, thresh, superdiag
+            contacts, self._true_contacts, cutoff, thresh, superdiag
         )
 
     @torch.no_grad()
@@ -98,5 +98,5 @@ class BaseModel(pl.LightningModule):
         if do_apc:
             contacts = apc(contacts)
         return contact_auc(
-            contacts, self.true_contacts, thresh, superdiag, cutoff_range
+            contacts, self._true_contacts, thresh, superdiag, cutoff_range
         )
