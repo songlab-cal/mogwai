@@ -38,7 +38,7 @@ class GremlinPseudolikelihood(BaseModel):
     def init_potts_bias(self, msa_counts: torch.Tensor, l2_coeff: float, num_seqs: int):
         # Create [L, A] bias term from PSSM
         bias = (msa_counts + l2_coeff * log(num_seqs)).log()
-        bias.add_(-bias.mean(-1, keepdims=True))
+        bias.add_(-bias.mean(-1, keepdims=True))  # type: ignore
         bias = nn.Parameter(bias, True)
         self.register_parameter("bias", bias)
 
