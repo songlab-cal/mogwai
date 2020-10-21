@@ -1,12 +1,12 @@
 from typing import Optional
 
-from math import log
-
 import torch
 import torch.nn as nn
 
 from .base_model import BaseModel
 from ..optim import GremlinAdam
+from ..utils import symmetrize_potts_
+from ..utils.init import init_potts_bias, init_potts_weight, init_pseudolik_mask
 
 
 class GremlinPseudolikelihood(BaseModel):
@@ -38,37 +38,22 @@ class GremlinPseudolikelihood(BaseModel):
         self.l2_coeff = l2_coeff
         self.use_bias = use_bias
 
-        self.init_potts_weight(msa_length, vocab_size)
-        self.init_pseudolik_mask(msa_length)
-
-        if self.use_bias:
-            self.init_potts_bias(msa_counts, l2_coeff, num_seqs)
-
-    def init_potts_weight(self, msa_length: int, vocab_size: int):
-        # Create [L,A,L,A] coupling tensor from zero.
-        weight = torch.zeros(msa_length, vocab_size, msa_length, vocab_size)
+        weight = init_potts_weight(msa_length, vocab_size)
         weight = nn.Parameter(weight, True)
         self.register_parameter("weight", weight)
 
-    def init_potts_bias(self, msa_counts: torch.Tensor, l2_coeff: float, num_seqs: int):
-        # Create [L, A] bias term from PSSM
-        bias = (msa_counts + l2_coeff * log(num_seqs)).log()
-        bias.add_(-bias.mean(-1, keepdims=True))  # type: ignore
-        bias = nn.Parameter(bias, True)
-        self.register_parameter("bias", bias)
+        mask = init_pseudolik_mask(msa_length)
+        self.register_buffer("diag_mask", mask)
 
-    def init_pseudolik_mask(self, msa_length: int):
-        # Create diagonal mask for pseudolikelihood
-        diag_mask = torch.ones(msa_length, msa_length).float()
-        diag_mask.masked_fill_(torch.eye(msa_length).bool(), 0.0)
-        self.register_buffer("diag_mask", diag_mask)
+        if self.use_bias:
+            bias = init_potts_bias(msa_counts, l2_coeff, num_seqs)
+            bias = nn.Parameter(bias, True)
+            self.register_parameter("bias", bias)
 
     @torch.no_grad()
     def apply_constraints(self):
         # Symmetrize and mask diagonal
-        self.weight.data = 0.5 * (
-            self.weight.data + self.weight.data.permute(2, 3, 0, 1)
-        )
+        self.weight.data = symmetrize_potts_(self.weight.data)
         self.weight.data.mul_(self.diag_mask[:, None, :, None])
 
     def forward(self, inputs):
