@@ -3,14 +3,14 @@ import unittest
 
 import pytorch_lightning as pl
 
-from mogwai.data_loading import NPZ_MSA_DataModule
+from mogwai.data_loading import NPZ_MSADataModule
 from mogwai.models import GremlinPseudolikelihood
 
 
 class TestGremlinPLPerformance(unittest.TestCase):
     def setUp(self):
         npz_path = "data/test/3er7_1_A.npz"
-        self.dm = NPZ_MSA_DataModule(npz_path, batch_size=4096)
+        self.dm = NPZ_MSADataModule(npz_path, batch_size=4096)
         self.dm.setup()
 
         n, l, _ = self.dm.dims
