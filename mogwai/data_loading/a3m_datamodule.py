@@ -1,13 +1,12 @@
-from typing import Optional, Union
+from argparse import ArgumentParser, Namespace
 
+from typing import Union
 from pathlib import Path
-
-import numpy as np
 import torch
-from torch.utils.data import DataLoader, TensorDataset
 import pytorch_lightning as pl
-
-from .parsing import a2n, one_hot, load_a3m_msa
+from ..data.msa_dataset import MSADataset
+from ..data.repeat_dataset import RepeatDataset
+from ..data.pseudolikelihood_dataset import PseudolikelihoodDataset
 
 
 class A3M_MSADataModule(pl.LightningDataModule):
@@ -18,45 +17,40 @@ class A3M_MSADataModule(pl.LightningDataModule):
         batch_size (int, optional): Batch size for DataLoader.
     """
 
-    def __init__(
-        self,
-        a3m_file: Union[str, Path],
-        batch_size: int = 64,
-    ):
+    def __init__(self, data: Union[str, Path], batch_size: int = 128, num_repeats: int = 1):
         super().__init__()
-        a3m_file = Path(a3m_file)
-        if not a3m_file.exists():
-            raise FileNotFoundError(a3m_file)
-
-        self.a3m_file = a3m_file
+        self.data = data
         self.batch_size = batch_size
+        self.num_repeats = num_repeats
 
     def setup(self):
-        msa, _, _, reference = load_a3m_msa(self.a3m_file)
-        msa = torch.FloatTensor(msa)
-        self.msa_dataset = TensorDataset(msa)
-        ref_int = np.array([a2n[aa] for aa in reference])
-        self.reference = torch.tensor(one_hot(ref_int))
-        self.dims = msa.shape
-        self.msa_counts = msa.sum(0)
-
-    @property
-    def num_seqs(self) -> int:
-        return self.dims[0]
-
-    @property
-    def msa_length(self) -> int:
-        return self.dims[1]
-
-    @property
-    def vocab_size(self) -> int:
-        return self.dims[2]
+        msa_dataset = MSADataset(self.data)
+        dataset = RepeatDataset(msa_dataset, self.num_repeats)
+        dataset = PseudolikelihoodDataset(dataset)
+        self.dataset = dataset
+        self.msa_dataset = msa_dataset
 
     def train_dataloader(self):
-        return DataLoader(
-            self.msa_dataset,
+        return torch.utils.data.DataLoader(
+            self.dataset,
             batch_size=self.batch_size,
             shuffle=True,
             pin_memory=True,
             num_workers=8,
+            collate_fn=self.dataset.collater,
         )
+
+    @classmethod
+    def from_args(cls, args: Namespace) -> "A3M_MSADataModule":
+        return cls(args.data, args.batch_size, args.num_repeats)
+
+    @staticmethod
+    def add_args(parser: ArgumentParser) -> ArgumentParser:
+        MSADataset.add_args(parser)
+        RepeatDataset.add_args(parser)
+        PseudolikelihoodDataset.add_args(parser)
+        parser.add_argument(
+            "--batch_size", type=int, default=128, help="Batch size for training."
+        )
+        parser.add_argument("data", type=str, help="Data file to load from.")
+        return parser

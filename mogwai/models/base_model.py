@@ -43,8 +43,13 @@ class BaseModel(pl.LightningModule):
         self.register_buffer("_max_auc", torch.tensor(0.0))
 
     def training_step(self, batch, batch_nb):
-        loss, *_ = self.forward(*batch)
-        metrics = {}
+        if isinstance(batch, tuple):
+            loss, *_ = self.forward(*batch)
+        elif isinstance(batch, dict):
+            loss, *_ = self.forward(**batch)
+        else:
+            loss, *_ = self.forward(batch)
+
         compute_auc = self.global_step & 10 == 0
         if compute_auc or self.trainer.fast_dev_run:
             auc = self.get_auc(do_apc=False)

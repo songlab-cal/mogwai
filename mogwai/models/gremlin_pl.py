@@ -1,3 +1,4 @@
+from argparse import ArgumentParser
 from typing import Optional
 
 import torch
@@ -33,10 +34,12 @@ class GremlinPseudolikelihood(BaseModel):
         true_contacts: Optional[torch.Tensor] = None,
         l2_coeff: float = 1e-2,
         use_bias: bool = True,
+        pad_idx: int = 20,
     ):
         super().__init__(num_seqs, msa_length, learning_rate, vocab_size, true_contacts)
         self.l2_coeff = l2_coeff
         self.use_bias = use_bias
+        self.pad_idx = pad_idx
 
         weight = init_potts_weight(msa_length, vocab_size)
         weight = nn.Parameter(weight, True)
@@ -50,21 +53,22 @@ class GremlinPseudolikelihood(BaseModel):
             bias = nn.Parameter(bias, True)
             self.register_parameter("bias", bias)
 
+        self.register_buffer("one_hot", torch.eye(vocab_size + 1, vocab_size))
+
     @torch.no_grad()
     def apply_constraints(self):
         # Symmetrize and mask diagonal
         self.weight.data = symmetrize_potts_(self.weight.data)
         self.weight.data.mul_(self.diag_mask[:, None, :, None])
 
-    def forward(self, inputs):
+    def forward(self, src_tokens, targets=None):
         self.apply_constraints()
+        inputs = self.one_hot[src_tokens]
         logits = torch.tensordot(inputs, self.weight, 2)
         if self.use_bias:
-            logits.add_(self.bias)
+            logits = logits + self.bias
 
-        targets = inputs.argmax(-1)
-        targets.masked_fill_(inputs.sum(-1) == 0, -1)
-        loss = nn.CrossEntropyLoss(ignore_index=-1, reduction="sum")(
+        loss = nn.CrossEntropyLoss(ignore_index=self.pad_idx, reduction="sum")(
             logits.view(-1, self.vocab_size), targets.view(-1)
         )
         loss = loss / inputs.size(0)
@@ -93,5 +97,31 @@ class GremlinPseudolikelihood(BaseModel):
     @torch.no_grad()
     def get_contacts(self):
         """Extracts contacts by taking Frobenius norm of each interaction matrix."""
+        self.apply_constraints()
         contacts = self.weight.data.norm(p=2, dim=(1, 3))
         return contacts
+
+    @staticmethod
+    def add_args(parser: ArgumentParser) -> ArgumentParser:
+        parser.add_argument(
+            "--learning_rate",
+            type=float,
+            default=0.5,
+            help="Learning rate for training.",
+        )
+        parser.add_argument(
+            "--l2_coeff",
+            type=float,
+            default=1e-2,
+            help="L2 Regularization Coefficient.",
+        )
+        parser.add_argument(
+            "--use_bias", action="store_true", help="Use a bias when training GREMLIN."
+        )
+        parser.add_argument(
+            "--no_bias",
+            action="store_false",
+            help="Use a bias when training GREMLIN.",
+            dest="use_bias",
+        )
+        return parser
