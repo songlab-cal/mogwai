@@ -1,6 +1,8 @@
 from typing import Union, List, Tuple
 
 from Bio import SeqIO
+from biotite.structure.io.pdb import PDBFile
+from scipy.spatial.distance import pdist, squareform
 from collections import OrderedDict, namedtuple
 from pathlib import Path
 import numpy as np
@@ -38,6 +40,7 @@ IUPAC_CODES = OrderedDict(
     ]
 )
 three2one = {three.upper(): one for three, one in IUPAC_CODES.items()}
+PathLike = Union[str, Path]
 
 
 def one_hot(x, cat=None):
@@ -140,7 +143,7 @@ def load_a3m_msa(filename):
     return one_hot(msa), one_hot(ms), one_hot(aln), reference
 
 
-def parse_cf(filename, cutoff=0.001, sequence=None):
+def contacts_from_cf(filename: PathLike, cutoff=0.001, sequence=None) -> np.ndarray:
     # contact Y,1     Y,2     0.006281        MET     ARG
     n, cons = 0, []
     with open(filename, "r") as f:
@@ -169,3 +172,25 @@ def parse_cf(filename, cutoff=0.001, sequence=None):
     contacts = cm + cm.T
     contacts = contacts[start:end, start:end]
     return contacts
+
+
+def contacts_from_pdb(
+    filename: PathLike, distance_threshold: float = 8.0
+) -> np.ndarray:
+    pdbfile = PDBFile.read(str(filename))
+    structure = pdbfile.get_structure()
+    coords = structure.coord[0, structure.atom_name == "C"]
+    distogram = squareform(pdist(coords))
+    return distogram < distance_threshold
+
+
+def read_contacts(filename: PathLike, **kwargs) -> np.ndarray:
+    filename = Path(filename)
+    if filename.suffix == ".cf":
+        return contacts_from_cf(filename, **kwargs)
+    elif filename.suffix == ".pdb":
+        return contacts_from_pdb(filename, **kwargs)
+    else:
+        raise ValueError(
+            f"Cannot read file of type {filename.suffix}, must be one of (.cf, .pdb)"
+        )

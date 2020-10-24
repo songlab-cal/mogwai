@@ -10,18 +10,20 @@ from ..utils import symmetrize_potts_
 from ..utils.init import init_potts_bias, init_potts_weight, init_pseudolik_mask
 
 
-class GremlinPseudolikelihood(BaseModel):
-    """GREMLIN, a Potts model trained with pseudolikelihood.
+class Gremlin(BaseModel):
+    """GREMLIN, a Potts model trained with pseudolikelihood or masked lm.
 
     Args:
         num_seqs (int): Number of sequences in MSA.
         msa_length (int): Length of MSA.
-        msa_counts (tensor): Counts of each amino acid in each position of MSA. Used for initialization.
+        msa_counts (tensor): Counts of each amino acid in each position of MSA. Used
+            for initialization.
         learning_rate (float): Learning rate for training model.
         vocab_size (int, optional): Alphabet size of MSA.
-        true_contacts (tensor, optional): True contacts for family. Used to compute metrics while training.
+        true_contacts (tensor, optional): True contacts for family. Used to compute
+            metrics while training.
         l2_coeff (int, optional): Coefficient of L2 regularization for all weights.
-        use_bias (bool, optional): Whether to include single-site potentials in the model.
+        use_bias (bool, optional): Whether to include single-site potentials.
     """
 
     def __init__(

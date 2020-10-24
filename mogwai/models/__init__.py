@@ -1,1 +1,1 @@
-from .gremlin_pl import GremlinPseudolikelihood
+from .gremlin import Gremlin  # noqa: F401
