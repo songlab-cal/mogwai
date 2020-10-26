@@ -1,7 +1,7 @@
 biopython
 matplotlib
 numpy
-pytorch-lightning==1.0.0
+pytorch-lightning>=1.0.0
 scipy
 torch
 biotite

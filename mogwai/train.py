@@ -30,14 +30,14 @@ def train():
         ),
     )
     parser = MSADataModule.add_args(parser)
-    model_type = models.get(model_name)
-    model_type.add_args(parser)
     parser = pl.Trainer.add_argparse_args(parser)
     parser.set_defaults(
         gpus=1,
         min_steps=50,
         max_steps=1000,
     )
+    model_type = models.get(model_name)
+    model_type.add_args(parser)
     args = parser.parse_args()
 
     # Load msa

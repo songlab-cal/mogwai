@@ -17,6 +17,11 @@ setuptools.setup(
     license=LICENSE,
     install_requires=requirements,
     scripts=["scripts/download_example.sh"],
+    entry_points={
+        "console_scripts": [
+            "mogwai-train=mogwai.train:train",
+        ]
+    },
     classifiers=[
         "Programming Language :: Python :: 3.6",
         "Operating System :: POSIX :: Linux",
