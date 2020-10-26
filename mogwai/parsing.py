@@ -3,43 +3,11 @@ from typing import Union, List, Tuple, Dict, Optional
 from Bio import SeqIO
 from biotite.structure.io.pdb import PDBFile
 from scipy.spatial.distance import pdist, squareform
-from collections import OrderedDict, namedtuple
 from pathlib import Path
 import numpy as np
 import string
+from .vocab import FastaVocab
 
-alphabet = "ARNDCQEGHILKMFPSTWYV"
-a2n = {a: n for n, a in enumerate(alphabet)}
-FamilyData = namedtuple("FamilyData", ["msa", "contacts"])
-IUPAC_CODES = OrderedDict(
-    [
-        ("Ala", "A"),
-        ("Asx", "B"),
-        ("Cys", "C"),
-        ("Asp", "D"),
-        ("Glu", "E"),
-        ("Phe", "F"),
-        ("Gly", "G"),
-        ("His", "H"),
-        ("Ile", "I"),
-        ("Lys", "K"),
-        ("Leu", "L"),
-        ("Met", "M"),
-        ("Asn", "N"),
-        ("Pro", "P"),
-        ("Gln", "Q"),
-        ("Arg", "R"),
-        ("Ser", "S"),
-        ("Thr", "T"),
-        ("Sec", "U"),
-        ("Val", "V"),
-        ("Trp", "W"),
-        ("Xaa", "X"),
-        ("Tyr", "Y"),
-        ("Glx", "Z"),
-    ]
-)
-three2one = {three.upper(): one for three, one in IUPAC_CODES.items()}
 PathLike = Union[str, Path]
 
 
@@ -49,27 +17,6 @@ def one_hot(x, cat=None):
         cat = np.max(x) + 1
     oh = np.concatenate((np.eye(cat), np.zeros([1, cat])))
     return oh[x]
-
-
-def load_npz_data(pdb_npz_file: Union[Path, str], c_beta_cutoff: int = 8):
-    """Loader for npz file containing both contacts and MSA."""
-    pdb_npz_file = Path(pdb_npz_file)
-    if not pdb_npz_file.exists():
-        raise FileNotFoundError(pdb_npz_file)
-
-    # pull the msa directly from the loaded npz
-    fam_data = np.load(pdb_npz_file)
-    msa = fam_data["msa"]
-
-    ref = msa[0]
-    # convert gaps (and pads) to 0s, one hot the rest
-    msa = one_hot(msa, cat=20)
-
-    # distance matrix
-    dist = fam_data["dist6d"]
-    nat_contacts = dist * ((dist > 0) & (dist < c_beta_cutoff))
-    assert nat_contacts.shape[0] == len(ref), "Contacts different length than MSA."
-    return FamilyData(msa, nat_contacts)
 
 
 def parse_fasta(
@@ -103,12 +50,14 @@ def parse_fasta(
 def get_seqref(x: str) -> Tuple[List[int], List[int], List[int]]:
     # input: string
     # output
-    #   -seq: unaligned sequence (remove gaps, lower to uppercase, numeric(A->0, R->1...))
-    #   -ref: reference describing how each sequence aligns to the first (reference sequence)
+    #   -seq: unaligned sequence (remove gaps, lower to uppercase,
+    #           numeric(A->0, R->1...))
+    #   -ref: reference describing how each sequence aligns to the first
+    #           (reference sequence)
     n, seq, ref, aligned_seq = 0, [], [], []
     for aa in x:
         if aa != "-":
-            seq.append(a2n.get(aa.upper(), -1))
+            seq.append(FastaVocab.A2N.get(aa.upper(), -1))
             if aa.islower():
                 ref.append(-1)
                 n -= 1
@@ -165,7 +114,7 @@ def contacts_from_cf(filename: PathLike, cutoff=0.001, sequence=None) -> np.ndar
             cons.append([i - 1, j - 1, p])
             if line.startswith("SEQUENCE") and sequence is not None:
                 seq = line.split()[1:]
-                seq = "".join(three2one[code] for code in seq)
+                seq = "".join(FastaVocab.THREE_LETTER[code] for code in seq)
                 start = seq.index(sequence)
                 end = start + len(sequence)
                 break
