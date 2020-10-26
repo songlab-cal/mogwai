@@ -4,18 +4,18 @@ from typing import Union
 from pathlib import Path
 import torch
 import pytorch_lightning as pl
-from ..data.msa_dataset import MSADataset, MSAStats
+from ..data.ms_dataset import MSDataset, MSStats
 from ..data.repeat_dataset import RepeatDataset
 from ..data.pseudolikelihood_dataset import PseudolikelihoodDataset
 from ..data.maskedlm_dataset import MaskedLMDataset
 from ..vocab import FastaVocab
 
 
-class MSADataModule(pl.LightningDataModule):
-    """Creates dataset from A3M file of an MSA.
+class MSDataModule(pl.LightningDataModule):
+    """Creates dataset from A3M or Fasta file.
 
     Args:
-        data (Union[str, Path]): Path to a3m file to load MSA.
+        data (Union[str, Path]): Path to fasta or a3m file to load sequences.
         batch_size (int, optional): Batch size for DataLoader. Default 128.
         num_repeats (int, optional): Number of times to repeat dataset (can speed up
             training for small datasets). Default 1.
@@ -34,10 +34,10 @@ class MSADataModule(pl.LightningDataModule):
         data: Union[str, Path],
         batch_size: int = 128,
         num_repeats: int = 1,
-        task: str = "pseudolikelihhod",
+        task: str = "pseudolikelihood",
         mask_prob: float = 0.15,
-        mask_rnd_prob: float = 0.0,
-        mask_leave_prob: float = 0.0,
+        mask_rnd_prob: float = 0.1,
+        mask_leave_prob: float = 0.1,
     ):
         super().__init__()
         self.data = data
@@ -49,8 +49,8 @@ class MSADataModule(pl.LightningDataModule):
         self.mask_leave_prob = mask_leave_prob
 
     def setup(self):
-        msa_dataset = MSADataset(self.data)
-        dataset = RepeatDataset(msa_dataset, self.num_repeats)
+        ms_dataset = MSDataset(self.data)
+        dataset = RepeatDataset(ms_dataset, self.num_repeats)
         if self.task == "pseudolikelihood":
             dataset = PseudolikelihoodDataset(dataset)
         elif self.task == "masked_lm":
@@ -63,13 +63,15 @@ class MSADataModule(pl.LightningDataModule):
                 self.mask_rnd_prob,
                 self.mask_leave_prob,
             )
+        elif self.task != "none":  # allow none to load raw sequences
+            raise ValueError(f"Invalid task {self.task}")
         self.dataset = dataset
-        self.msa_dataset = msa_dataset
-        self.dims = (msa_dataset.num_seqs, msa_dataset.msa_length)
+        self.ms_dataset = ms_dataset
+        self.dims = (ms_dataset.num_seqs, ms_dataset.reference_length)
 
-    def get_stats(self) -> MSAStats:
+    def get_stats(self) -> MSStats:
         try:
-            return self.msa_dataset.get_stats()
+            return self.ms_dataset.get_stats()
         except AttributeError:
             raise RuntimeError(
                 "Trying to get MSA stats before calling setup on module."
@@ -86,7 +88,7 @@ class MSADataModule(pl.LightningDataModule):
         )
 
     @classmethod
-    def from_args(cls, args: Namespace) -> "MSADataModule":
+    def from_args(cls, args: Namespace) -> "MSDataModule":
         return cls(
             args.data,
             args.batch_size,
@@ -99,7 +101,7 @@ class MSADataModule(pl.LightningDataModule):
 
     @staticmethod
     def add_args(parser: ArgumentParser) -> ArgumentParser:
-        MSADataset.add_args(parser)
+        MSDataset.add_args(parser)
         RepeatDataset.add_args(parser)
         PseudolikelihoodDataset.add_args(parser)
         MaskedLMDataset.add_args(parser)
