@@ -15,7 +15,7 @@ class Gremlin(BaseModel):
         self,
         num_seqs: int,
         msa_length: int,
-        msa_counts: torch.Tensor,
+        msa_counts: Optional[torch.Tensor] = None,
         learning_rate: float = 0.5,
         vocab_size: int = 20,
         true_contacts: Optional[torch.Tensor] = None,
@@ -29,18 +29,23 @@ class Gremlin(BaseModel):
         self.pad_idx = pad_idx
 
         weight = init_potts_weight(msa_length, vocab_size)
-        weight = nn.Parameter(weight, True)
-        self.register_parameter("weight", weight)
+        self.weight = nn.Parameter(weight, True)
 
         mask = init_pseudolik_mask(msa_length)
         self.register_buffer("diag_mask", mask)
 
         if self.use_bias:
-            bias = init_potts_bias(msa_counts, l2_coeff, num_seqs)
-            bias = nn.Parameter(bias, True)
-            self.register_parameter("bias", bias)
+            if msa_counts is not None:
+                bias = init_potts_bias(msa_counts, l2_coeff, num_seqs)
+            else:
+                bias = torch.zeros(msa_length, vocab_size)
+            self.bias = nn.Parameter(bias, True)
 
         self.register_buffer("one_hot", torch.eye(vocab_size + 1, vocab_size))
+        self._weight_reg_coeff = (
+            l2_coeff * (msa_length - 1) * (vocab_size - 1) / num_seqs
+        )
+        self._bias_reg_coeff = l2_coeff / num_seqs
 
     @torch.no_grad()
     def apply_constraints(self):
@@ -48,36 +53,48 @@ class Gremlin(BaseModel):
         self.weight.data = symmetrize_potts_(self.weight.data)
         self.weight.data.mul_(self.diag_mask[:, None, :, None])
 
-    def forward(self, src_tokens, targets=None):
+    def maybe_onehot_inputs(self, src_tokens):
+        """Onehots src_tokens if necessary otherwise uses original tokens"""
+        if src_tokens.dtype == torch.long:
+            return self.one_hot[src_tokens]
+        else:
+            return src_tokens
+
+    def forward(self, src_tokens, targets=None, src_lengths=None):
         self.apply_constraints()
-        inputs = self.one_hot[src_tokens]
+        inputs = self.maybe_onehot_inputs(src_tokens)
         logits = torch.tensordot(inputs, self.weight, 2)
         if self.use_bias:
             logits = logits + self.bias
 
+        outputs = (logits,)
+        if targets is not None:
+            loss = self.loss(logits, targets)
+            outputs = (loss,) + outputs
+
+        return outputs
+
+    def loss(self, logits, targets):
+        """Compute GREMLIN loss w/ L2 Regularization"""
         loss = nn.CrossEntropyLoss(ignore_index=self.pad_idx, reduction="sum")(
             logits.view(-1, self.vocab_size), targets.view(-1)
         )
-        loss = loss / inputs.size(0)
+        loss += self.compute_regularization(targets)
+        loss = loss / logits.size(0)
+        return loss
 
-        return loss, logits
+    def compute_regularization(self, targets):
+        """Compute regularization weights based on the number of targets."""
+        sample_size = (targets != self.pad_idx).sum()
+        reg = self._weight_reg_coeff * self.weight.norm()
+        if self.use_bias:
+            reg += self._bias_reg_coeff * self.bias.norm()
+
+        return reg * sample_size
 
     def configure_optimizers(self):
-        weight_decay = (
-            self.l2_coeff * (self.msa_length - 1) * self.vocab_size / self.num_seqs
-        )
-        bias_weight_decay = self.l2_coeff * 2 / self.num_seqs
-
-        optimizer_grouped_parameters = [
-            {"params": [self.weight], "weight_decay": weight_decay}
-        ]
-        if self.use_bias:
-            optimizer_grouped_parameters.append(
-                {"params": [self.bias], "weight_decay": bias_weight_decay}
-            )
-
         optimizer = GremlinAdam(
-            optimizer_grouped_parameters, lr=self.learning_rate, weight_decay=0.0
+            self.parameters(), lr=self.learning_rate, weight_decay=0.0
         )
         return [optimizer]
 
@@ -94,7 +111,7 @@ class Gremlin(BaseModel):
         args: Namespace,
         num_seqs: int,
         msa_length: int,
-        msa_counts: torch.Tensor,
+        msa_counts: Optional[torch.Tensor] = None,
         vocab_size: int = 20,
         pad_idx: int = 20,
         true_contacts: Optional[torch.Tensor] = None,

@@ -67,7 +67,7 @@ class MSDataModule(pl.LightningDataModule):
             raise ValueError(f"Invalid task {self.task}")
         self.dataset = dataset
         self.ms_dataset = ms_dataset
-        self.dims = (ms_dataset.num_seqs, ms_dataset.reference_length)
+        self.dims = (ms_dataset.num_seqs, len(ms_dataset.reference))
 
     def get_stats(self) -> MSStats:
         try:
@@ -112,7 +112,7 @@ class MSDataModule(pl.LightningDataModule):
         parser.add_argument(
             "--task",
             choices=["pseudolikelihood", "masked_lm"],
-            default="pseudolikelihood",
+            default="masked_lm",
             help="Whether to use Pseudolikelihood or Masked LM for training",
         )
         return parser
