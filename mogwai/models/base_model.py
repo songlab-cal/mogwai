@@ -1,6 +1,7 @@
+from argparse import ArgumentParser, Namespace
 from typing import List, Optional
 
-from abc import abstractmethod
+from abc import abstractmethod, abstractclassmethod
 
 import torch
 import pytorch_lightning as pl
@@ -115,3 +116,11 @@ class BaseModel(pl.LightningModule):
         return contact_auc(
             contacts, self._true_contacts, thresh, superdiag, cutoff_range  # type: ignore
         )
+
+    @abstractclassmethod
+    def from_args(cls, args: Namespace, *unused, **unusedkw) -> "BaseModel":
+        return NotImplemented
+
+    @staticmethod
+    def add_args(parser: ArgumentParser) -> ArgumentParser:
+        return parser

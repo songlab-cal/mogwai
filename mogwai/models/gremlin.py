@@ -1,4 +1,4 @@
-from argparse import ArgumentParser
+from argparse import ArgumentParser, Namespace
 from typing import Optional
 
 import torch
@@ -11,21 +11,6 @@ from ..utils.init import init_potts_bias, init_potts_weight, init_pseudolik_mask
 
 
 class Gremlin(BaseModel):
-    """GREMLIN, a Potts model trained with pseudolikelihood or masked lm.
-
-    Args:
-        num_seqs (int): Number of sequences in MSA.
-        msa_length (int): Length of MSA.
-        msa_counts (tensor): Counts of each amino acid in each position of MSA. Used
-            for initialization.
-        learning_rate (float): Learning rate for training model.
-        vocab_size (int, optional): Alphabet size of MSA.
-        true_contacts (tensor, optional): True contacts for family. Used to compute
-            metrics while training.
-        l2_coeff (int, optional): Coefficient of L2 regularization for all weights.
-        use_bias (bool, optional): Whether to include single-site potentials.
-    """
-
     def __init__(
         self,
         num_seqs: int,
@@ -102,6 +87,29 @@ class Gremlin(BaseModel):
         self.apply_constraints()
         contacts = self.weight.data.norm(p=2, dim=(1, 3))
         return contacts
+
+    @classmethod
+    def from_args(
+        cls,
+        args: Namespace,
+        num_seqs: int,
+        msa_length: int,
+        msa_counts: torch.Tensor,
+        vocab_size: int = 20,
+        pad_idx: int = 20,
+        true_contacts: Optional[torch.Tensor] = None,
+    ) -> "Gremlin":
+        return cls(
+            num_seqs=num_seqs,
+            msa_length=msa_length,
+            msa_counts=msa_counts,
+            learning_rate=args.learning_rate,
+            vocab_size=vocab_size,
+            true_contacts=true_contacts,
+            l2_coeff=args.l2_coeff,
+            use_bias=args.use_bias,
+            pad_idx=pad_idx,
+        )
 
     @staticmethod
     def add_args(parser: ArgumentParser) -> ArgumentParser:
