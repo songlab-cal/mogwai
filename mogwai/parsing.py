@@ -1,4 +1,4 @@
-from typing import Union, List, Tuple
+from typing import Union, List, Tuple, Dict, Optional
 
 from Bio import SeqIO
 from biotite.structure.io.pdb import PDBFile
@@ -73,24 +73,30 @@ def load_npz_data(pdb_npz_file: Union[Path, str], c_beta_cutoff: int = 8):
 
 
 def parse_fasta(
-    filename: Union[str, Path], a3m: bool = False
+    filename: Union[str, Path],
+    remove_insertions: bool = False,
+    remove_gaps: bool = False,
 ) -> Tuple[List[str], List[str]]:
-    if a3m:
-        rm_lc = str.maketrans(dict.fromkeys(string.ascii_lowercase))
 
-        def process_record(record: SeqIO.SeqRecord):
-            return record.description, str(record.seq).translate(rm_lc)
-
+    translate_dict: Dict[str, Optional[str]] = {}
+    if remove_insertions:
+        translate_dict.update(dict.fromkeys(string.ascii_lowercase))
     else:
+        translate_dict.update(dict(zip(string.ascii_lowercase, string.ascii_uppercase)))
 
-        def process_record(record: SeqIO.SeqRecord):
-            return record.description, str(record.seq)
+    if remove_gaps:
+        translate_dict["-"] = None
 
-    with open(filename) as f:
-        records = SeqIO.parse(f, "fasta")
-        records = map(process_record, records)
-        records = zip(*records)
-        headers, sequences = tuple(records)
+    translate_dict["."] = None
+    translation = str.maketrans(translate_dict)
+
+    def process_record(record: SeqIO.SeqRecord):
+        return record.description, str(record.seq).translate(translation)
+
+    records = SeqIO.parse(str(filename), "fasta")
+    records = map(process_record, records)
+    records = zip(*records)
+    headers, sequences = tuple(records)
     return headers, sequences
 
 
@@ -174,13 +180,33 @@ def contacts_from_cf(filename: PathLike, cutoff=0.001, sequence=None) -> np.ndar
     return contacts
 
 
+def extend(a, b, c, L, A, D):
+    """
+    input:  3 coords (a,b,c), (L)ength, (A)ngle, and (D)ihedral
+    output: 4th coord
+    """
+    def normalize(x):
+        return x / np.linalg.norm(x, ord=2, axis=-1, keepdims=True)
+
+    bc = normalize(b - c)
+    n = normalize(np.cross(b - a, bc))
+    m = [bc, np.cross(n, bc), n]
+    d = [L * np.cos(A), L * np.sin(A) * np.cos(D), -L * np.sin(A) * np.sin(D)]
+    return c + sum([m * d for m, d in zip(m, d)])
+
+
 def contacts_from_pdb(
     filename: PathLike, distance_threshold: float = 8.0
 ) -> np.ndarray:
     pdbfile = PDBFile.read(str(filename))
     structure = pdbfile.get_structure()
-    coords = structure.coord[0, structure.atom_name == "C"]
-    distogram = squareform(pdist(coords))
+
+    N = structure.coord[0, structure.atom_name == "N"]
+    C = structure.coord[0, structure.atom_name == "C"]
+    CA = structure.coord[0, structure.atom_name == "CA"]
+
+    Cbeta = extend(C, N, CA, 1.522, 1.927, -2.143)
+    distogram = squareform(pdist(Cbeta))
     return distogram < distance_threshold
 
 
