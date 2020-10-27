@@ -1,6 +1,7 @@
+from argparse import ArgumentParser, Namespace
 from typing import List, Optional
 
-from abc import abstractmethod
+from abc import abstractmethod, abstractclassmethod
 
 import torch
 import pytorch_lightning as pl
@@ -43,8 +44,13 @@ class BaseModel(pl.LightningModule):
         self.register_buffer("_max_auc", torch.tensor(0.0))
 
     def training_step(self, batch, batch_nb):
-        loss, *_ = self.forward(*batch)
-        metrics = {}
+        if isinstance(batch, tuple):
+            loss, *_ = self.forward(*batch)
+        elif isinstance(batch, dict):
+            loss, *_ = self.forward(**batch)
+        else:
+            loss, *_ = self.forward(batch)
+
         compute_auc = self.global_step & 10 == 0
         if compute_auc or self.trainer.fast_dev_run:
             auc = self.get_auc(do_apc=False)
@@ -110,3 +116,11 @@ class BaseModel(pl.LightningModule):
         return contact_auc(
             contacts, self._true_contacts, thresh, superdiag, cutoff_range  # type: ignore
         )
+
+    @abstractclassmethod
+    def from_args(cls, args: Namespace, *unused, **unusedkw) -> "BaseModel":
+        return NotImplemented
+
+    @staticmethod
+    def add_args(parser: ArgumentParser) -> ArgumentParser:
+        return parser

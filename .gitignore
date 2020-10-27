@@ -3,6 +3,7 @@ lightning_logs/
 
 # Data
 data/
+!mogwai/data
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

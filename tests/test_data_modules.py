@@ -1,12 +1,12 @@
 import unittest
 
-from mogwai.data_loading import A3M_MSADataModule, NPZ_MSADataModule
+from mogwai.data_loading import MSADataModule, NPZ_MSADataModule
 
 
 class TestA3MDataModule(unittest.TestCase):
     def setUp(self):
         a3m_path = "data/test/4rb6Y/4rb6Y.i90c75.a3m"
-        self.dm = A3M_MSADataModule(a3m_path)
+        self.dm = MSADataModule(a3m_path)
         self.dm.setup()
 
     def test_datamodule_shape(self):
