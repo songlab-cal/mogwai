@@ -87,7 +87,7 @@ class FactoredAttention(BaseModel):
         else:
             return src_tokens
 
-    def forward(self, src_tokens, targets=None):
+    def forward(self, src_tokens, targets=None, src_lengths=None):
         inputs = self.maybe_onehot_inputs(src_tokens)
         # batch_size, seqlen = src_tokens.size()
         # values = self.value(inputs).view(
@@ -184,7 +184,7 @@ class FactoredAttention(BaseModel):
         args: Namespace,
         num_seqs: int,
         msa_length: int,
-        msa_counts: torch.Tensor,
+        msa_counts: Optional[torch.Tensor] = None,
         vocab_size: int = 20,
         pad_idx: int = 20,
         true_contacts: Optional[torch.Tensor] = None,
