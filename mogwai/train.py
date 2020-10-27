@@ -73,12 +73,13 @@ def train():
     trainer = pl.Trainer.from_argparse_args(args)
 
     trainer.fit(model, msa_dm)
-    contacts = model.get_contacts()
-    contacts = apc(contacts)
 
     if true_contacts is not None:
-        auc = contact_auc(contacts, true_contacts)
-        print(auc)
+        contacts = model.get_contacts()
+        auc = contact_auc(contacts, true_contacts).item()
+        contacts = apc(contacts)
+        auc_apc = contact_auc(contacts, true_contacts).item()
+        print(f"AUC: {auc:0.3f}, AUC_APC: {auc_apc:0.3f}")
 
     if args.output_file is not None:
         torch.save(model.state_dict(), args.output_file)

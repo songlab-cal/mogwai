@@ -7,7 +7,7 @@ import torch.nn as nn
 from apex.optimizers import FusedLAMB
 
 from .base_model import BaseModel
-from ..utils import symmetrize_matrix_
+from ..utils import symmetrize_matrix_, symmetrize_potts
 from ..utils.init import init_potts_bias
 
 
@@ -31,7 +31,7 @@ class FactoredAttention(BaseModel):
         self,
         num_seqs: int,
         msa_length: int,
-        msa_counts: torch.Tensor,
+        msa_counts: Optional[torch.Tensor] = None,
         attention_head_size: int = 16,
         num_attention_heads: int = 32,
         optimizer: str = "adam",
@@ -51,6 +51,7 @@ class FactoredAttention(BaseModel):
         self.num_attention_heads = num_attention_heads
         self.attention_head_size = attention_head_size
         self.optimizer = optimizer
+        self.vocab_size = vocab_size
 
         hidden_size = attention_head_size * num_attention_heads
 
@@ -60,71 +61,122 @@ class FactoredAttention(BaseModel):
         self.key = nn.Parameter(
             0.01 * torch.randn(msa_length, num_attention_heads, attention_head_size)
         )
-        self.value = nn.Embedding(vocab_size + 1, hidden_size, padding_idx=pad_idx)
+        self.value = nn.Linear(vocab_size, hidden_size, bias=False)
         self.output = nn.Linear(hidden_size, vocab_size, bias=False)
 
         if self.use_bias:
-            bias = init_potts_bias(msa_counts, l2_coeff, num_seqs)
-            bias = nn.Parameter(bias, True)
-            self.register_parameter("bias", bias)
+            if msa_counts is not None:
+                bias = init_potts_bias(msa_counts, l2_coeff, num_seqs)
+            else:
+                bias = torch.zeros(msa_length, vocab_size)
+
+            self.bias = nn.Parameter(bias, True)
 
         self.register_buffer("diag_mask", torch.eye(msa_length) * -10000)
+        self.register_buffer("one_hot", torch.eye(vocab_size + 1, vocab_size))
+
+        self._weight_reg_coeff = (
+            l2_coeff * (msa_length - 1) * (vocab_size - 1) / num_seqs
+        )
+        self._bias_reg_coeff = l2_coeff / num_seqs
+
+    def maybe_onehot_inputs(self, src_tokens):
+        """Onehots src_tokens if necessary otherwise uses original tokens"""
+        if src_tokens.dtype == torch.long:
+            return self.one_hot[src_tokens]
+        else:
+            return src_tokens
 
     def forward(self, src_tokens, targets=None):
-        batch_size, seqlen = src_tokens.size()
-        values = self.value(src_tokens).view(
-            batch_size, seqlen, self.num_attention_heads, self.attention_head_size
-        )
-        attention = torch.einsum("ihd,jhd->hij", self.query, self.key)
-        attention = attention / math.sqrt(self.attention_head_size)
-        attention = attention + self.diag_mask
-        attention = attention.softmax(-1)
-        context = torch.einsum("hij,njhd->nihd", attention, values)
-        context = context.reshape(
-            batch_size, seqlen, self.num_attention_heads * self.attention_head_size
-        )
-        logits = self.output(context)
+        inputs = self.maybe_onehot_inputs(src_tokens)
+        # batch_size, seqlen = src_tokens.size()
+        # values = self.value(inputs).view(
+            # batch_size, seqlen, self.num_attention_heads, self.attention_head_size
+        # )
+        # attention = torch.einsum("ihd,jhd->hij", self.query, self.key)
+        # attention = attention / math.sqrt(self.attention_head_size)
+        # attention = attention + self.diag_mask
+        # attention = attention.softmax(-1)
+        # context = torch.einsum("hij,njhd->nihd", attention, values)
+        # context = context.reshape(
+            # batch_size, seqlen, self.num_attention_heads * self.attention_head_size
+        # )
+        # logits = self.output(context)
+        gremlin_w = self.compute_gremlin_w()
+        logits = torch.tensordot(inputs, gremlin_w, 2)
 
         if self.use_bias:
             logits = logits + self.bias
 
-        outputs = (logits, attention)
+        outputs = (logits, gremlin_w.norm(dim=(1, 3)))
         if targets is not None:
-            loss = nn.CrossEntropyLoss(ignore_index=self.pad_idx, reduction="sum")(
-                logits.view(-1, self.vocab_size), targets.view(-1)
-            )
-            loss = loss / batch_size
+            loss = self.loss(logits, targets)
             outputs = (loss,) + outputs
         return outputs
+
+    def compute_regularization(self, targets, gremlin_w: Optional[torch.Tensor] = None):
+        """Compute regularization weights based on the number of targets."""
+        if gremlin_w is None:
+            gremlin_w = self.compute_gremlin_w()
+        sample_size = (targets != self.pad_idx).sum()
+        reg = self._weight_reg_coeff * gremlin_w.norm()
+        if self.use_bias:
+            reg += self._bias_reg_coeff * self.bias.norm()
+
+        return reg * sample_size
+
+    def loss(self, logits, targets, gremlin_w: Optional[torch.Tensor] = None):
+        """Compute GREMLIN loss w/ L2 Regularization"""
+        loss = nn.CrossEntropyLoss(ignore_index=self.pad_idx, reduction="sum")(
+            logits.view(-1, self.vocab_size), targets.view(-1)
+        )
+        loss += self.compute_regularization(targets, gremlin_w)
+        loss = loss / logits.size(0)
+        return loss
+
+    def compute_gremlin_w(self):
+        attention = torch.einsum("ihd,jhd->hij", self.query, self.key)
+        attention = attention / math.sqrt(self.attention_head_size)
+        attention = attention + self.diag_mask
+        attention = attention.softmax(-1)  # H x L x L
+
+        value = self.value.weight
+        value = value.view(
+            self.vocab_size, self.num_attention_heads, self.attention_head_size
+        )
+
+        output = self.output.weight
+        output = output.view(
+            self.vocab_size, self.num_attention_heads, self.attention_head_size
+        )
+
+        embed = torch.einsum("ahd,bhd->hab", value, output)  # H x A x A
+
+        W = torch.einsum("hij,hab->iajb", attention, embed)
+        return W
 
     def configure_optimizers(self):
         if self.optimizer == "adam":
             optimizer = torch.optim.AdamW(
-                self.parameters(), lr=self.learning_rate, weight_decay=self.l2_coeff
+                self.parameters(), lr=self.learning_rate, weight_decay=0.0
             )
         elif self.optimizer == "lamb":
             optimizer = FusedLAMB(
                 self.parameters(),
                 lr=self.learning_rate,
-                weight_decay=self.l2_coeff,
+                weight_decay=0.0,
             )
         else:
             raise ValueError(f"Unrecognized optimizer {self.optimizer}")
         return [optimizer]
 
     @torch.no_grad()
-    def get_contacts(self):
+    def get_contacts(self, gremlin_w: Optional[torch.Tensor] = None):
         """Extracts contacts by getting the attentions."""
-        inputs = torch.full(
-            [1, self.msa_length],
-            self.pad_idx,
-            dtype=torch.long,
-            device=next(self.parameters()).device,
-        )
-        *_, attention = self.forward(inputs)
-        attention = attention.mean(0)
-        attention = symmetrize_matrix_(attention)
-        return attention
+        if gremlin_w is None:
+            gremlin_w = self.compute_gremlin_w()
+        gremlin_w = symmetrize_potts(gremlin_w)
+        return gremlin_w.norm(dim=(1, 3))
 
     @classmethod
     def from_args(
