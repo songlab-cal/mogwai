@@ -9,6 +9,7 @@ from apex.optimizers import FusedLAMB
 from .base_model import BaseModel
 from ..utils import symmetrize_matrix_, symmetrize_potts
 from ..utils.init import init_potts_bias
+from .. import lr_schedulers
 
 
 class FactoredAttention(BaseModel):
@@ -41,6 +42,10 @@ class FactoredAttention(BaseModel):
         l2_coeff: float = 1e-2,
         use_bias: bool = True,
         pad_idx: int = 20,
+        lr_scheduler: str = "warmup_constant",
+        warmup_steps: int = 0,
+        max_steps: int = 10000,
+        use_gremlin_w: bool = True,
     ):
         super().__init__(num_seqs, msa_length, learning_rate, vocab_size, true_contacts)
         self.l2_coeff = l2_coeff
@@ -52,6 +57,9 @@ class FactoredAttention(BaseModel):
         self.attention_head_size = attention_head_size
         self.optimizer = optimizer
         self.vocab_size = vocab_size
+        self.lr_scheduler = lr_scheduler
+        self.warmup_steps = warmup_steps
+        self.max_steps = max_steps
 
         hidden_size = attention_head_size * num_attention_heads
 
@@ -79,6 +87,8 @@ class FactoredAttention(BaseModel):
             l2_coeff * (msa_length - 1) * (vocab_size - 1) / num_seqs
         )
         self._bias_reg_coeff = l2_coeff / num_seqs
+        self._use_gremlin_w = use_gremlin_w
+        # self.save_hyperparameters()
 
     def maybe_onehot_inputs(self, src_tokens):
         """Onehots src_tokens if necessary otherwise uses original tokens"""
@@ -89,28 +99,32 @@ class FactoredAttention(BaseModel):
 
     def forward(self, src_tokens, targets=None, src_lengths=None):
         inputs = self.maybe_onehot_inputs(src_tokens)
-        # batch_size, seqlen = src_tokens.size()
-        # values = self.value(inputs).view(
-            # batch_size, seqlen, self.num_attention_heads, self.attention_head_size
-        # )
-        # attention = torch.einsum("ihd,jhd->hij", self.query, self.key)
-        # attention = attention / math.sqrt(self.attention_head_size)
-        # attention = attention + self.diag_mask
-        # attention = attention.softmax(-1)
-        # context = torch.einsum("hij,njhd->nihd", attention, values)
-        # context = context.reshape(
-            # batch_size, seqlen, self.num_attention_heads * self.attention_head_size
-        # )
-        # logits = self.output(context)
         gremlin_w = self.compute_gremlin_w()
-        logits = torch.tensordot(inputs, gremlin_w, 2)
+        if not self._use_gremlin_w:
+            batch_size, seqlen = src_tokens.size()
+            values = self.value(inputs).view(
+                batch_size, seqlen, self.num_attention_heads, self.attention_head_size
+            )
+
+            attention = torch.einsum("ihd,jhd->hij", self.query, self.key)
+            attention = attention / math.sqrt(self.attention_head_size)
+            attention = attention + self.diag_mask
+            attention = attention.softmax(-1)
+
+            context = torch.einsum("hij,njhd->nihd", attention, values)
+            context = context.reshape(
+                batch_size, seqlen, self.num_attention_heads * self.attention_head_size
+            )
+            logits = self.output(context)
+        else:
+            logits = torch.tensordot(inputs, gremlin_w, 2)
 
         if self.use_bias:
             logits = logits + self.bias
 
         outputs = (logits, gremlin_w.norm(dim=(1, 3)))
         if targets is not None:
-            loss = self.loss(logits, targets)
+            loss = self.loss(logits, targets, gremlin_w)
             outputs = (loss,) + outputs
         return outputs
 
@@ -142,7 +156,7 @@ class FactoredAttention(BaseModel):
 
         value = self.value.weight
         value = value.view(
-            self.vocab_size, self.num_attention_heads, self.attention_head_size
+            self.num_attention_heads, self.attention_head_size, self.vocab_size,
         )
 
         output = self.output.weight
@@ -150,9 +164,10 @@ class FactoredAttention(BaseModel):
             self.vocab_size, self.num_attention_heads, self.attention_head_size
         )
 
-        embed = torch.einsum("ahd,bhd->hab", value, output)  # H x A x A
+        embed = torch.einsum("hda,bhd->hab", value, output)  # H x A x A
 
         W = torch.einsum("hij,hab->iajb", attention, embed)
+        W = symmetrize_potts(W)
         return W
 
     def configure_optimizers(self):
@@ -166,16 +181,29 @@ class FactoredAttention(BaseModel):
                 lr=self.learning_rate,
                 weight_decay=0.0,
             )
+        elif self.optimizer == "gremlin":
+            from ..optim import GremlinAdam
+            optimizer = GremlinAdam(
+                [{"params": self.parameters(), "gremlin": True}],
+                lr=self.learning_rate,
+            )
         else:
             raise ValueError(f"Unrecognized optimizer {self.optimizer}")
-        return [optimizer]
+
+        lr_scheduler = lr_schedulers.get(self.lr_scheduler)(
+            optimizer, self.warmup_steps, self.trainer.max_steps
+        )
+        scheduler_dict = {
+            "scheduler": lr_scheduler,
+            "interval": "step",
+        }
+        return [optimizer], [scheduler_dict]
 
     @torch.no_grad()
     def get_contacts(self, gremlin_w: Optional[torch.Tensor] = None):
         """Extracts contacts by getting the attentions."""
         if gremlin_w is None:
             gremlin_w = self.compute_gremlin_w()
-        gremlin_w = symmetrize_potts(gremlin_w)
         return gremlin_w.norm(dim=(1, 3))
 
     @classmethod
@@ -202,6 +230,8 @@ class FactoredAttention(BaseModel):
             l2_coeff=args.l2_coeff,
             use_bias=args.use_bias,
             pad_idx=pad_idx,
+            lr_scheduler=args.lr_scheduler,
+            warmup_steps=args.warmup_steps,
         )
 
     @staticmethod
@@ -241,8 +271,20 @@ class FactoredAttention(BaseModel):
         )
         parser.add_argument(
             "--optimizer",
-            choices=["adam", "lamb"],
+            choices=["adam", "lamb", "gremlin"],
             default="adam",
             help="Which optimizer to use.",
+        )
+        parser.add_argument(
+            "--lr_scheduler",
+            choices=lr_schedulers.LR_SCHEDULERS.keys(),
+            default="warmup_constant",
+            help="Learning rate scheduler to use."
+        )
+        parser.add_argument(
+            "--warmup_steps",
+            type=int,
+            default=0,
+            help="How many warmup steps to use when using a warmup schedule."
         )
         return parser

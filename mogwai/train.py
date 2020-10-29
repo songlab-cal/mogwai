@@ -1,6 +1,7 @@
 from argparse import ArgumentParser
 import pytorch_lightning as pl
 import torch
+from pathlib import Path
 
 from mogwai.data_loading import MSADataModule
 from mogwai.parsing import read_contacts
@@ -33,7 +34,13 @@ def train():
         "--output_file",
         type=str,
         default=None,
-        help="Optional file to output gremlin weights."
+        help="Optional file to output gremlin weights.",
+    )
+    parser.add_argument(
+        "--wandb_project",
+        type=str,
+        default=None,
+        help="Optional wandb project to log to.",
     )
     parser = MSADataModule.add_args(parser)
     parser = pl.Trainer.add_argparse_args(parser)
@@ -69,8 +76,27 @@ def train():
         true_contacts=true_contacts,
     )
 
+    kwargs = {}
+    if args.wandb_project:
+        try:
+            # Requires wandb to be installed
+            logger = pl.loggers.WandbLogger(project=args.wandb_project)
+            logger.log_hyperparams(args)
+            logger.log_hyperparams(
+                {
+                    "pdb": Path(args.data).stem,
+                    "num_seqs": num_seqs,
+                    "msa_length": msa_length,
+                }
+            )
+            kwargs["logger"] = logger
+        except ImportError:
+            raise ImportError(
+                "Cannot use W&B logger w/o W&b install. Run `pip install wandb` first."
+            )
+
     # Initialize Trainer
-    trainer = pl.Trainer.from_argparse_args(args)
+    trainer = pl.Trainer.from_argparse_args(args, **kwargs)
 
     trainer.fit(model, msa_dm)
 
