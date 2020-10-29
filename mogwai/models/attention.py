@@ -7,7 +7,7 @@ import torch.nn as nn
 from apex.optimizers import FusedLAMB
 
 from .base_model import BaseModel
-from ..utils import symmetrize_matrix_, symmetrize_potts_
+from ..utils import symmetrize_matrix_
 from ..utils.init import init_potts_bias
 
 
@@ -75,6 +75,7 @@ class Attention(BaseModel):
             l2_coeff * (msa_length - 1) * (vocab_size - 1) / num_seqs
         )
         self._bias_reg_coeff = l2_coeff / num_seqs
+        # self.save_hyperparameters()
 
     def maybe_onehot_inputs(self, src_tokens):
         """Onehots src_tokens if necessary otherwise uses original tokens"""
@@ -203,10 +204,6 @@ class Attention(BaseModel):
         attention = attention.mean((0, 1))
         attention = symmetrize_matrix_(attention)
         return attention
-        # gremlin_w = self.compute_gremlin_w(inputs)
-        # gremlin_w = 0.5 * (gremlin_w + gremlin_w.permute(2, 1, 0, 3))
-        # gremlin_w = symmetrize_potts_(gremlin_w)
-        # return gremlin_w.norm(dim=(1, 3))
 
     @classmethod
     def from_args(
