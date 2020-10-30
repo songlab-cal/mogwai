@@ -18,14 +18,25 @@ class FactoredAttention(BaseModel):
     Args:
         num_seqs (int): Number of sequences in MSA.
         msa_length (int): Length of MSA.
-        msa_counts (tensor): Counts of each amino acid in each position of MSA. Used
+        msa_counts (tensor, optional): Counts of each amino acid in each position of MSA. Used
             for initialization.
-        learning_rate (float): Learning rate for training model.
+        attention_head_size (int, optional): Dimension of queries and keys for a single head.
+        num_attention_heads (int, optional): Number of attention heads.
+        optimizer (str, optional): Choice of optimizer from ["adam", "lamb", or "gremlin"]. "gremlin"
+            specifies GremlinAdam.
+        learning_rate (float, optional): Learning rate for training model.
         vocab_size (int, optional): Alphabet size of MSA.
         true_contacts (tensor, optional): True contacts for family. Used to compute
             metrics while training.
         l2_coeff (int, optional): Coefficient of L2 regularization for all weights.
         use_bias (bool, optional): Whether to include single-site potentials.
+        pad_idx (int, optional): Integer for padded positions.
+        lr_scheduler (str, optional): Learning schedule to use. Choose from ["constant", "warmup_constant"].
+        warmup_steps (int, optional): Number of warmup steps for learning rate schedule.
+        max_steps (int, optional): Maximum number of training batches before termination.
+        use_gremlin_w (bool, optional): Whether to regularize using l2 norm of each query, key, and value matrix
+            separately or to form the full interaction tensor and regularize its block norm. If set to true,
+            regularization agrees with that used by Gremlin.
     """
 
     def __init__(
@@ -106,6 +117,7 @@ class FactoredAttention(BaseModel):
                 batch_size, seqlen, self.num_attention_heads, self.attention_head_size
             )
 
+            # For factored attention, attention does not depend on input.
             attention = torch.einsum("ihd,jhd->hij", self.query, self.key)
             attention = attention / math.sqrt(self.attention_head_size)
             attention = attention + self.diag_mask
@@ -156,7 +168,9 @@ class FactoredAttention(BaseModel):
 
         value = self.value.weight
         value = value.view(
-            self.num_attention_heads, self.attention_head_size, self.vocab_size,
+            self.num_attention_heads,
+            self.attention_head_size,
+            self.vocab_size,
         )
 
         output = self.output.weight
@@ -166,7 +180,7 @@ class FactoredAttention(BaseModel):
 
         embed = torch.einsum("hda,bhd->hab", value, output)  # H x A x A
 
-        W = torch.einsum("hij,hab->iajb", attention, embed)
+        W = torch.einsum("hij,hab->iajb", attention, embed)  # L x A x L x A
         W = symmetrize_potts(W)
         return W
 
@@ -183,6 +197,7 @@ class FactoredAttention(BaseModel):
             )
         elif self.optimizer == "gremlin":
             from ..optim import GremlinAdam
+
             optimizer = GremlinAdam(
                 [{"params": self.parameters(), "gremlin": True}],
                 lr=self.learning_rate,
@@ -279,12 +294,12 @@ class FactoredAttention(BaseModel):
             "--lr_scheduler",
             choices=lr_schedulers.LR_SCHEDULERS.keys(),
             default="warmup_constant",
-            help="Learning rate scheduler to use."
+            help="Learning rate scheduler to use.",
         )
         parser.add_argument(
             "--warmup_steps",
             type=int,
             default=0,
-            help="How many warmup steps to use when using a warmup schedule."
+            help="How many warmup steps to use when using a warmup schedule.",
         )
         return parser
