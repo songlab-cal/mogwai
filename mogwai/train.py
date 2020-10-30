@@ -29,6 +29,12 @@ def train():
             "Used for evaluation."
         ),
     )
+    parser.add_argument(
+        "--output_file",
+        type=str,
+        default=None,
+        help="Optional file to output gremlin weights."
+    )
     parser = MSADataModule.add_args(parser)
     parser = pl.Trainer.add_argparse_args(parser)
     parser.set_defaults(
@@ -73,6 +79,9 @@ def train():
     if true_contacts is not None:
         auc = contact_auc(contacts, true_contacts)
         print(auc)
+
+    if args.output_file is not None:
+        torch.save(model.state_dict(), args.output_file)
 
 
 if __name__ == "__main__":
