@@ -34,9 +34,6 @@ class FactoredAttention(BaseModel):
         lr_scheduler (str, optional): Learning schedule to use. Choose from ["constant", "warmup_constant"].
         warmup_steps (int, optional): Number of warmup steps for learning rate schedule.
         max_steps (int, optional): Maximum number of training batches before termination.
-        use_gremlin_w (bool, optional): Whether to regularize using l2 norm of each query, key, and value matrix
-            separately or to form the full interaction tensor and regularize its block norm. If set to true,
-            regularization agrees with that used by Gremlin.
     """
 
     def __init__(
@@ -56,7 +53,6 @@ class FactoredAttention(BaseModel):
         lr_scheduler: str = "warmup_constant",
         warmup_steps: int = 0,
         max_steps: int = 10000,
-        use_gremlin_w: bool = True,
     ):
         super().__init__(num_seqs, msa_length, learning_rate, vocab_size, true_contacts)
         self.l2_coeff = l2_coeff
@@ -98,7 +94,6 @@ class FactoredAttention(BaseModel):
             l2_coeff * (msa_length - 1) * (vocab_size - 1) / num_seqs
         )
         self._bias_reg_coeff = l2_coeff / num_seqs
-        self._use_gremlin_w = use_gremlin_w
         # self.save_hyperparameters()
 
     def maybe_onehot_inputs(self, src_tokens):
@@ -110,57 +105,37 @@ class FactoredAttention(BaseModel):
 
     def forward(self, src_tokens, targets=None, src_lengths=None):
         inputs = self.maybe_onehot_inputs(src_tokens)
-        gremlin_w = self.compute_gremlin_w()
-        if not self._use_gremlin_w:
-            batch_size, seqlen = src_tokens.size()
-            values = self.value(inputs).view(
-                batch_size, seqlen, self.num_attention_heads, self.attention_head_size
-            )
-
-            # For factored attention, attention does not depend on input.
-            attention = torch.einsum("ihd,jhd->hij", self.query, self.key)
-            attention = attention / math.sqrt(self.attention_head_size)
-            attention = attention + self.diag_mask
-            attention = attention.softmax(-1)
-
-            context = torch.einsum("hij,njhd->nihd", attention, values)
-            context = context.reshape(
-                batch_size, seqlen, self.num_attention_heads * self.attention_head_size
-            )
-            logits = self.output(context)
-        else:
-            logits = torch.tensordot(inputs, gremlin_w, 2)
+        mrf_weight = self.compute_mrf_weight()
+        logits = torch.tensordot(inputs, mrf_weight, 2)
 
         if self.use_bias:
             logits = logits + self.bias
 
-        outputs = (logits, gremlin_w.norm(dim=(1, 3)))
+        outputs = (logits, mrf_weight.norm(dim=(1, 3)))
         if targets is not None:
-            loss = self.loss(logits, targets, gremlin_w)
+            loss = self.loss(logits, targets, mrf_weight)
             outputs = (loss,) + outputs
         return outputs
 
-    def compute_regularization(self, targets, gremlin_w: Optional[torch.Tensor] = None):
+    def compute_regularization(self, targets, mrf_weight: torch.Tensor):
         """Compute regularization weights based on the number of targets."""
-        if gremlin_w is None:
-            gremlin_w = self.compute_gremlin_w()
         sample_size = (targets != self.pad_idx).sum()
-        reg = self._weight_reg_coeff * gremlin_w.norm()
+        reg = self._weight_reg_coeff * mrf_weight.norm()
         if self.use_bias:
             reg += self._bias_reg_coeff * self.bias.norm()
 
         return reg * sample_size
 
-    def loss(self, logits, targets, gremlin_w: Optional[torch.Tensor] = None):
+    def loss(self, logits, targets, mrf_weight: torch.Tensor):
         """Compute GREMLIN loss w/ L2 Regularization"""
         loss = nn.CrossEntropyLoss(ignore_index=self.pad_idx, reduction="sum")(
             logits.view(-1, self.vocab_size), targets.view(-1)
         )
-        loss += self.compute_regularization(targets, gremlin_w)
+        loss += self.compute_regularization(targets, mrf_weight)
         loss = loss / logits.size(0)
         return loss
 
-    def compute_gremlin_w(self):
+    def compute_mrf_weight(self):
         attention = torch.einsum("ihd,jhd->hij", self.query, self.key)
         attention = attention / math.sqrt(self.attention_head_size)
         attention = attention + self.diag_mask
@@ -215,11 +190,11 @@ class FactoredAttention(BaseModel):
         return [optimizer], [scheduler_dict]
 
     @torch.no_grad()
-    def get_contacts(self, gremlin_w: Optional[torch.Tensor] = None):
+    def get_contacts(self, mrf_weight: Optional[torch.Tensor] = None):
         """Extracts contacts by getting the attentions."""
-        if gremlin_w is None:
-            gremlin_w = self.compute_gremlin_w()
-        return gremlin_w.norm(dim=(1, 3))
+        if mrf_weight is None:
+            mrf_weight = self.compute_mrf_weight()
+        return mrf_weight.norm(dim=(1, 3))
 
     @classmethod
     def from_args(
