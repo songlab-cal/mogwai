@@ -36,6 +36,12 @@ def train():
         default=None,
         help="Optional wandb project to log to.",
     )
+    parser.add_argument(
+        "--output_file",
+        type=str,
+        default=None,
+        help="Optional file to output gremlin weights.",
+    )
     parser = MSADataModule.add_args(parser)
     parser = pl.Trainer.add_argparse_args(parser)
     parser.set_defaults(
@@ -100,6 +106,9 @@ def train():
         contacts = apc(contacts)
         auc_apc = contact_auc(contacts, true_contacts).item()
         print(f"AUC: {auc:0.3f}, AUC_APC: {auc_apc:0.3f}")
+
+    if args.output_file is not None:
+        torch.save(model.state_dict(), args.output_file)
 
 
 if __name__ == "__main__":
