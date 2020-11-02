@@ -9,6 +9,7 @@ from apex.optimizers import FusedLAMB
 from .base_model import BaseModel
 from ..utils import symmetrize_matrix_
 from ..utils.init import init_potts_bias
+from .. import lr_schedulers
 
 
 class Attention(BaseModel):
@@ -17,14 +18,22 @@ class Attention(BaseModel):
     Args:
         num_seqs (int): Number of sequences in MSA.
         msa_length (int): Length of MSA.
-        msa_counts (tensor): Counts of each amino acid in each position of MSA. Used
+        msa_counts (tensor, optional): Counts of each amino acid in each position of MSA. Used
             for initialization.
-        learning_rate (float): Learning rate for training model.
+        attention_head_size (int, optional): Dimension of queries and keys for a single head.
+        num_attention_heads (int, optional): Number of attention heads.
+        optimizer (str, optional): Choice of optimizer from ["adam", "lamb", or "gremlin"]. "gremlin"
+            specifies GremlinAdam.
+        learning_rate (float, optional): Learning rate for training model.
         vocab_size (int, optional): Alphabet size of MSA.
         true_contacts (tensor, optional): True contacts for family. Used to compute
             metrics while training.
         l2_coeff (int, optional): Coefficient of L2 regularization for all weights.
         use_bias (bool, optional): Whether to include single-site potentials.
+        pad_idx (int, optional): Integer for padded positions.
+        lr_scheduler (str, optional): Learning schedule to use. Choose from ["constant", "warmup_constant"].
+        warmup_steps (int, optional): Number of warmup steps for learning rate schedule.
+        max_steps (int, optional): Maximum number of training batches before termination.
     """
 
     def __init__(
@@ -41,6 +50,9 @@ class Attention(BaseModel):
         l2_coeff: float = 1e-2,
         use_bias: bool = True,
         pad_idx: int = 20,
+        lr_scheduler: str = "warmup_constant",
+        warmup_steps: int = 0,
+        max_steps: int = 10000,
     ):
         super().__init__(num_seqs, msa_length, learning_rate, vocab_size, true_contacts)
         self.l2_coeff = l2_coeff
@@ -52,6 +64,9 @@ class Attention(BaseModel):
         self.attention_head_size = attention_head_size
         self.optimizer = optimizer
         self.vocab_size = vocab_size
+        self.lr_scheduler = lr_scheduler
+        self.warmup_steps = warmup_steps
+        self.max_steps = max_steps
 
         hidden_size = attention_head_size * num_attention_heads
 
@@ -119,7 +134,9 @@ class Attention(BaseModel):
 
         outputs = (logits, attention)
         if targets is not None:
-            loss = self.loss(logits, targets, self.compute_gremlin_w(src_tokens, attention))
+            loss = self.loss(
+                logits, targets, self.compute_mrf_weight(src_tokens, attention)
+            )
             outputs = (loss,) + outputs
 
         return outputs
@@ -139,25 +156,25 @@ class Attention(BaseModel):
             raise ValueError(f"Unrecognized optimizer {self.optimizer}")
         return [optimizer]
 
-    def compute_regularization(self, targets, gremlin_w: torch.Tensor):
+    def compute_regularization(self, targets, mrf_weight: torch.Tensor):
         """Compute regularization weights based on the number of targets."""
         sample_size = (targets != self.pad_idx).sum()
-        reg = self._weight_reg_coeff * gremlin_w.norm()
+        reg = self._weight_reg_coeff * mrf_weight.norm()
         if self.use_bias:
             reg += self._bias_reg_coeff * self.bias.norm()
 
         return reg * sample_size
 
-    def loss(self, logits, targets, gremlin_w: Optional[torch.Tensor] = None):
+    def loss(self, logits, targets, mrf_weight: torch.Tensor):
         """Compute GREMLIN loss w/ L2 Regularization"""
         loss = nn.CrossEntropyLoss(ignore_index=self.pad_idx, reduction="sum")(
             logits.view(-1, self.vocab_size), targets.view(-1)
         )
-        loss += self.compute_regularization(targets, gremlin_w)
+        loss += self.compute_regularization(targets, mrf_weight)
         loss = loss / logits.size(0)
         return loss
 
-    def compute_gremlin_w(self, src_tokens, attention=None):
+    def compute_mrf_weight(self, src_tokens, attention=None):
         if attention is None:
             batch_size, seqlen = src_tokens.size()[:2]
             inputs = self.maybe_onehot_inputs(src_tokens)
@@ -188,8 +205,8 @@ class Attention(BaseModel):
             self.vocab_size, self.num_attention_heads, self.attention_head_size
         )
         embed = torch.einsum("ahd,bhd->hab", value, output)  # H x (A + L) x A
-        gremlin_w = torch.einsum("hij,hab->iajb", attention.mean(0), embed)
-        return gremlin_w
+        mrf_weight = torch.einsum("hij,hab->iajb", attention.mean(0), embed)
+        return mrf_weight
 
     @torch.no_grad()
     def get_contacts(self):
