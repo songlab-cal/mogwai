@@ -8,7 +8,7 @@ from apex.optimizers import FusedLAMB
 
 from .base_model import BaseModel
 from ..utils import symmetrize_matrix_, symmetrize_potts
-from ..utils.init import init_potts_bias
+from ..utils.init import init_potts_bias, gremlin_weight_decay_coeffs
 from .. import lr_schedulers
 
 
@@ -90,10 +90,9 @@ class FactoredAttention(BaseModel):
         self.register_buffer("diag_mask", torch.eye(msa_length) * -10000)
         self.register_buffer("one_hot", torch.eye(vocab_size + 1, vocab_size))
 
-        self._weight_reg_coeff = (
-            l2_coeff * (msa_length - 1) * (vocab_size - 1) / num_seqs
+        self._weight_reg_coeff, self._bias_reg_coeff = gremlin_weight_decay_coeffs(
+            num_seqs, msa_length, l2_coeff, vocab_size
         )
-        self._bias_reg_coeff = l2_coeff / num_seqs
         # self.save_hyperparameters()
 
     def maybe_onehot_inputs(self, src_tokens):
