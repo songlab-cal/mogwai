@@ -70,12 +70,14 @@ class FactoredAttention(BaseModel):
 
         hidden_size = attention_head_size * num_attention_heads
 
-        self.query = nn.Parameter(
-            0.01 * torch.randn(msa_length, num_attention_heads, attention_head_size)
-        )
-        self.key = nn.Parameter(
-            0.01 * torch.randn(msa_length, num_attention_heads, attention_head_size)
-        )
+        query = torch.empty(msa_length, num_attention_heads, attention_head_size)
+        nn.init.xavier_uniform_(query)
+        self.query = nn.Parameter(query, requires_grad=True)
+
+        key = torch.empty(msa_length, num_attention_heads, attention_head_size)
+        nn.init.xavier_uniform_(key)
+        self.key = nn.Parameter(key, requires_grad=True)
+
         self.value = nn.Linear(vocab_size, hidden_size, bias=False)
         self.output = nn.Linear(hidden_size, vocab_size, bias=False)
 
