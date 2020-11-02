@@ -51,7 +51,7 @@ class BaseModel(pl.LightningModule):
         else:
             loss, *_ = self.forward(batch)
 
-        compute_auc = self.global_step & 10 == 0
+        compute_auc = self.global_step & 10 == 0 and self.has_true_contacts
         if compute_auc or self.trainer.fast_dev_run:
             auc = self.get_auc(do_apc=False)
             auc_apc = self.get_auc(do_apc=True)
