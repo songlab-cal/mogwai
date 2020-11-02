@@ -7,7 +7,12 @@ import torch.nn as nn
 from .base_model import BaseModel
 from ..optim import GremlinAdam
 from ..utils import symmetrize_potts_
-from ..utils.init import init_potts_bias, init_potts_weight, init_pseudolik_mask
+from ..utils.init import (
+    init_potts_bias,
+    init_potts_weight,
+    init_pseudolik_mask,
+    gremlin_weight_decay_coeffs,
+)
 
 
 class Gremlin(BaseModel):
@@ -42,10 +47,9 @@ class Gremlin(BaseModel):
             self.bias = nn.Parameter(bias, True)
 
         self.register_buffer("one_hot", torch.eye(vocab_size + 1, vocab_size))
-        self._weight_reg_coeff = (
-            l2_coeff * (msa_length - 1) * (vocab_size - 1) / num_seqs
+        self._weight_reg_coeff, self._bias_reg_coeff = gremlin_weight_decay_coeffs(
+            num_seqs, msa_length, l2_coeff, vocab_size
         )
-        self._bias_reg_coeff = l2_coeff / num_seqs
 
     @torch.no_grad()
     def apply_constraints(self):

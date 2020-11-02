@@ -1,5 +1,7 @@
 """Contains initializers shared by models."""
 
+from typing import Tuple
+
 from math import log
 import torch
 
@@ -41,3 +43,11 @@ def init_pseudolik_mask(msa_length: int) -> torch.Tensor:
     diag_mask = torch.ones(msa_length, msa_length, dtype=torch.float)
     diag_mask = zero_diag_(diag_mask)
     return diag_mask
+
+
+def gremlin_weight_decay_coeffs(
+    num_seqs: int, msa_length: int, l2_coeff: float, vocab_size: int = 20
+) -> Tuple[float, float]:
+    weight_coeff = l2_coeff * (msa_length - 1) * (vocab_size - 1) / num_seqs
+    bias_coeff = l2_coeff / num_seqs
+    return weight_coeff, bias_coeff
