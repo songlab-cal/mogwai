@@ -157,7 +157,11 @@ class Attention(BaseModel):
     def compute_regularization(self, targets, mrf_weight: torch.Tensor):
         """Compute regularization weights based on the number of targets."""
         sample_size = (targets != self.pad_idx).sum()
-        reg = self._weight_reg_coeff * mrf_weight.norm()
+
+        batch_size = mrf_weight.size()[0]
+        reg = self._weight_reg_coeff * mrf_weight.reshape(batch_size, -1).norm(
+            dim=1
+        ).sum(0)
         if self.use_bias:
             reg += self._bias_reg_coeff * self.bias.norm()
 
