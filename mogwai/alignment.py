@@ -191,9 +191,9 @@ def make_a3m(input_file: str, database: str, keep_intermediates: bool = False) -
     for evalue in [1e-80, 1e-60, 1e-40, 1e-20, 1e-10, 1e-8, 1e-6, 1e-4, 1e-3, 1e-1]:
         # HHblits at particular evalue
         hhblits.evalue = evalue
-        out_path = Path(prev_a3m).with_name(f".{Path(input_file).stem}.{evalue}.a3m")
+        out_path = Path(input_file).with_name(f".{Path(input_file).stem}.{evalue}.a3m")
         if not out_path.exists():
-            hhblits.run(input_file, out_path)
+            hhblits.run(prev_a3m, out_path)
         intermediates.append(out_path)
 
         # HHFilter id90, cov75
@@ -217,6 +217,8 @@ def make_a3m(input_file: str, database: str, keep_intermediates: bool = False) -
         if count_sequences(id90cov50_path) > 5000:
             id90cov50_path.rename(output_file)
             break
+
+        prev_a3m = id90cov50_path
 
     else:
         id90cov50_path.rename(output_file)
