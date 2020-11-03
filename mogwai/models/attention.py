@@ -33,8 +33,6 @@ class Attention(BaseModel):
         lr_scheduler (str, optional): Learning schedule to use. Choose from ["constant", "warmup_constant"].
         warmup_steps (int, optional): Number of warmup steps for learning rate schedule.
         max_steps (int, optional): Maximum number of training batches before termination.
-        factorize_vocab (bool, optional): Factorize the (A, A) interaction terms into a product of
-            (A, d) and (d, A) matrices. True allows for arbitrary value dimension.
     """
 
     def __init__(
@@ -54,7 +52,6 @@ class Attention(BaseModel):
         lr_scheduler: str = "warmup_constant",
         warmup_steps: int = 0,
         max_steps: int = 10000,
-        factorize_vocab: bool = True,
     ):
         super().__init__(num_seqs, msa_length, learning_rate, vocab_size, true_contacts)
         self.l2_coeff = l2_coeff
@@ -69,25 +66,13 @@ class Attention(BaseModel):
         self.lr_scheduler = lr_scheduler
         self.warmup_steps = warmup_steps
         self.max_steps = max_steps
-        self.factorize_vocab = factorize_vocab
 
         hidden_size = attention_head_size * num_attention_heads
 
         self.query = nn.Linear(msa_length + vocab_size, hidden_size, bias=False)
         self.key = nn.Linear(msa_length + vocab_size, hidden_size, bias=False)
-
-        if self.factorize_vocab:
-            value = torch.empty(num_attention_heads, vocab_size, attention_head_size)
-            nn.init.xavier_uniform_(value)
-            self.value = nn.Parameter(value, requires_grad=True)
-
-            output = torch.empty(num_attention_heads, attention_head_size, vocab_size)
-            nn.init.xavier_uniform_(output)
-            self.output = nn.Parameter(output, requires_grad=True)
-        else:
-            value = torch.empty(num_attention_heads, vocab_size, vocab_size)
-            nn.init.xavier_uniform_(value)
-            self.value = nn.Parameter(value, requires_grad=True)
+        self.value = nn.Linear(msa_length + vocab_size, hidden_size, bias=False)
+        self.output = nn.Linear(hidden_size, vocab_size, bias=False)
 
         if self.use_bias:
             if msa_counts is not None:
@@ -118,14 +103,36 @@ class Attention(BaseModel):
         posembed = self.posembed.repeat(batch_size, 1, 1)
         inputs = torch.cat((aa_inputs, posembed), -1)
 
-        mrf_weight, attention = self.compute_mrf_weight(inputs)
-        logits = torch.einsum("nia,njbia->njb", aa_inputs, mrf_weight)
+        queries = self.query(inputs)
+        keys = self.key(inputs)
+        values = self.value(inputs)
+
+        queries = queries.view(
+            batch_size, seqlen, self.num_attention_heads, self.attention_head_size
+        )
+        keys = keys.view(
+            batch_size, seqlen, self.num_attention_heads, self.attention_head_size
+        )
+        values = values.view(
+            batch_size, seqlen, self.num_attention_heads, self.attention_head_size
+        )
+        attention = torch.einsum("nihd,njhd->nhij", queries, keys)
+        attention = attention / math.sqrt(self.attention_head_size)
+        attention = attention + self.diag_mask
+        attention = attention.softmax(-1)
+
+        context = torch.einsum("nhij,njhd->nihd", attention, values)
+        context = context.reshape(
+            batch_size, seqlen, self.num_attention_heads * self.attention_head_size
+        )
+        logits = self.output(context).contiguous()
 
         if self.use_bias:
             logits = logits + self.bias
 
-        outputs = (logits, mrf_weight, attention)
+        outputs = (logits, attention)
         if targets is not None:
+            mrf_weight = self.compute_mrf_weight(attention)
             loss = self.loss(logits, targets, mrf_weight)
             outputs = (loss,) + outputs
 
@@ -159,9 +166,7 @@ class Attention(BaseModel):
         sample_size = (targets != self.pad_idx).sum()
 
         batch_size = mrf_weight.size()[0]
-        reg = self._weight_reg_coeff * mrf_weight.reshape(batch_size, -1).norm(
-            dim=1
-        ).sum(0)
+        reg = self._weight_reg_coeff * mrf_weight.norm()
         if self.use_bias:
             reg += self._bias_reg_coeff * self.bias.norm()
 
@@ -176,34 +181,21 @@ class Attention(BaseModel):
         loss = loss / logits.size(0)
         return loss
 
-    def compute_mrf_weight(self, inputs):
-        # Note that this is a mapping x -> MRF Weights(x),
+    def compute_mrf_weight(self, attention):
+        # Note that attention gives a mapping x -> MRF Weights(x),
         # so it is more general than a simple Pairwise MRF.
-        batch_size, seqlen = inputs.size()[:2]
-        queries = self.query(inputs)
-        keys = self.key(inputs)
-
-        queries = queries.view(
-            batch_size, seqlen, self.num_attention_heads, self.attention_head_size
+        value = self.value.weight.view(
+            self.vocab_size + self.msa_length,
+            self.num_attention_heads,
+            self.attention_head_size,
         )
-        keys = keys.view(
-            batch_size, seqlen, self.num_attention_heads, self.attention_head_size
+        output = self.output.weight
+        output = output.view(
+            self.vocab_size, self.num_attention_heads, self.attention_head_size
         )
-        attention = torch.einsum("nihd,njhd->nhij", queries, keys)
-        attention = attention / math.sqrt(self.attention_head_size)
-        attention = attention + self.diag_mask
-        attention = attention.softmax(-1)
-
-        if self.factorize_vocab:
-            embed = torch.einsum("had,hdb->hab", self.value, self.output)  # H x A x A
-        else:
-            embed = self.value
-
-        W = torch.einsum("nhij,hab->niajb", attention, embed)  # N x L x A x L x A
-
-        # Symmetrizing slows down a fair amount.
-        W = 0.5 * (W + W.permute(0, 3, 4, 1, 2))
-        return W, attention
+        embed = torch.einsum("ahd,bhd->hab", value, output)  # H x (A + L) x A
+        mrf_weight = torch.einsum("hij,hab->iajb", attention.sum(0), embed)
+        return mrf_weight
 
     @torch.no_grad()
     def get_contacts(self):
@@ -214,8 +206,9 @@ class Attention(BaseModel):
             dtype=torch.long,
             device=next(self.parameters()).device,
         )
-        _, mrf_weight, _ = self.forward(inputs)
-        return mrf_weight.squeeze().norm(dim=(1, 3))
+        *_, attention = self.forward(inputs)
+        mrf_weight = self.compute_mrf_weight(attention).squeeze()
+        return mrf_weight.norm(dim=(1, 3))
 
     @classmethod
     def from_args(
@@ -295,11 +288,5 @@ class Attention(BaseModel):
             type=int,
             default=0,
             help="How many warmup steps to use when using a warmup schedule.",
-        )
-        parser.add_argument(
-            "--factorize_vocab",
-            type=bool,
-            default=True,
-            help="Whether to factorize the vocab embedding.",
         )
         return parser
