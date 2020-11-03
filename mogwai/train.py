@@ -31,6 +31,12 @@ def train():
         ),
     )
     parser.add_argument(
+        "--wandb_project",
+        type=str,
+        default=None,
+        help="Optional wandb project to log to.",
+    )
+    parser.add_argument(
         "--output_file",
         type=str,
         default=None,
