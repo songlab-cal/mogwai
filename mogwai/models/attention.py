@@ -7,7 +7,7 @@ import torch.nn as nn
 from apex.optimizers import FusedLAMB
 
 from .base_model import BaseModel
-from ..utils import symmetrize_matrix_
+from ..utils import symmetrize_matrix_, symmetrize_potts
 from ..utils.init import init_potts_bias, gremlin_weight_decay_coeffs
 from .. import lr_schedulers
 
@@ -53,6 +53,7 @@ class Attention(BaseModel):
         lr_scheduler: str = "warmup_constant",
         warmup_steps: int = 0,
         max_steps: int = 10000,
+        factorize_vocab: bool = True,
     ):
         super().__init__(num_seqs, msa_length, learning_rate, vocab_size, true_contacts)
         self.l2_coeff = l2_coeff
@@ -67,13 +68,25 @@ class Attention(BaseModel):
         self.lr_scheduler = lr_scheduler
         self.warmup_steps = warmup_steps
         self.max_steps = max_steps
+        self.factorize_vocab = factorize_vocab
 
         hidden_size = attention_head_size * num_attention_heads
 
         self.query = nn.Linear(msa_length + vocab_size, hidden_size, bias=False)
         self.key = nn.Linear(msa_length + vocab_size, hidden_size, bias=False)
-        self.value = nn.Linear(msa_length + vocab_size, hidden_size, bias=False)
-        self.output = nn.Linear(hidden_size, vocab_size, bias=False)
+
+        if self.factorize_vocab:
+            value = torch.empty(num_attention_heads, vocab_size, attention_head_size)
+            nn.init.xavier_uniform_(value)
+            self.value = nn.Parameter(value, requires_grad=True)
+
+            output = torch.empty(num_attention_heads, attention_head_size, vocab_size)
+            nn.init.xavier_uniform_(output)
+            self.output = nn.Parameter(output, requires_grad=True)
+        else:
+            value = torch.empty(num_attention_heads, vocab_size, vocab_size)
+            nn.init.xavier_uniform_(value)
+            self.value = nn.Parameter(value, requires_grad=True)
 
         if self.use_bias:
             if msa_counts is not None:
@@ -99,43 +112,20 @@ class Attention(BaseModel):
             return src_tokens
 
     def forward(self, src_tokens, targets=None, src_lengths=None):
-        batch_size, seqlen = src_tokens.size()
-        inputs = self.maybe_onehot_inputs(src_tokens)
+        batch_size, seqlen = src_tokens.size()[:2]
+        aa_inputs = self.maybe_onehot_inputs(src_tokens)
         posembed = self.posembed.repeat(batch_size, 1, 1)
-        inputs = torch.cat((inputs, posembed), -1)
+        inputs = torch.cat((aa_inputs, posembed), -1)
 
-        queries = self.query(inputs)
-        keys = self.key(inputs)
-        values = self.value(inputs)
-
-        queries = queries.view(
-            batch_size, seqlen, self.num_attention_heads, self.attention_head_size
-        )
-        keys = keys.view(
-            batch_size, seqlen, self.num_attention_heads, self.attention_head_size
-        )
-        values = values.view(
-            batch_size, seqlen, self.num_attention_heads, self.attention_head_size
-        )
-        attention = torch.einsum("nihd,njhd->nhij", queries, keys)
-        attention = attention / math.sqrt(self.attention_head_size)
-        attention = attention + self.diag_mask
-        attention = attention.softmax(-1)
-
-        context = torch.einsum("nhij,njhd->nihd", attention, values)
-        context = context.reshape(
-            batch_size, seqlen, self.num_attention_heads * self.attention_head_size
-        )
-        logits = self.output(context).contiguous()
+        mrf_weight, attention = self.compute_mrf_weight(inputs)
+        logits = torch.einsum("nia,njbia->njb", aa_inputs, mrf_weight)
 
         if self.use_bias:
             logits = logits + self.bias
 
-        outputs = (logits, attention)
+        outputs = (logits, mrf_weight, attention)
         if targets is not None:
-            loss = self.loss(
-                logits, targets, self.compute_mrf_weight(src_tokens, attention)
-            )
+            loss = self.loss(logits, targets, mrf_weight)
             outputs = (loss,) + outputs
 
         return outputs
@@ -173,39 +163,32 @@ class Attention(BaseModel):
         loss = loss / logits.size(0)
         return loss
 
-    def compute_mrf_weight(self, src_tokens, attention=None):
-        if attention is None:
-            batch_size, seqlen = src_tokens.size()[:2]
-            inputs = self.maybe_onehot_inputs(src_tokens)
-            posembed = self.posembed.repeat(batch_size, 1, 1)
-            inputs = torch.cat((inputs, posembed), -1)
+    def compute_mrf_weight(self, inputs):
+        batch_size, seqlen = inputs.size()[:2]
+        queries = self.query(inputs)
+        keys = self.key(inputs)
 
-            queries = self.query(inputs)
-            keys = self.key(inputs)
-
-            queries = queries.view(
-                batch_size, seqlen, self.num_attention_heads, self.attention_head_size
-            )
-            keys = keys.view(
-                batch_size, seqlen, self.num_attention_heads, self.attention_head_size
-            )
-            attention = torch.einsum("nihd,njhd->nhij", queries, keys)
-            attention = attention / math.sqrt(self.attention_head_size)
-            attention = attention + self.diag_mask
-            attention = attention.softmax(-1)
-
-        value = self.value.weight.view(
-            self.vocab_size + self.msa_length,
-            self.num_attention_heads,
-            self.attention_head_size,
+        queries = queries.view(
+            batch_size, seqlen, self.num_attention_heads, self.attention_head_size
         )
-        output = self.output.weight
-        output = output.view(
-            self.vocab_size, self.num_attention_heads, self.attention_head_size
+        keys = keys.view(
+            batch_size, seqlen, self.num_attention_heads, self.attention_head_size
         )
-        embed = torch.einsum("ahd,bhd->hab", value, output)  # H x (A + L) x A
-        mrf_weight = torch.einsum("hij,hab->iajb", attention.mean(0), embed)
-        return mrf_weight
+        attention = torch.einsum("nihd,njhd->nhij", queries, keys)
+        attention = attention / math.sqrt(self.attention_head_size)
+        attention = attention + self.diag_mask
+        attention = attention.softmax(-1)
+
+        if self.factorize_vocab:
+            embed = torch.einsum("had,hdb->hab", self.value, self.output)  # H x A x A
+        else:
+            embed = self.value
+
+        W = torch.einsum("nhij,hab->niajb", attention, embed)  # N x L x A x L x A
+
+        # Symmetrizing slows down a fair amount.
+        W = 0.5 * (W + W.permute(0, 3, 4, 1, 2))
+        return W, attention
 
     @torch.no_grad()
     def get_contacts(self):
@@ -216,10 +199,8 @@ class Attention(BaseModel):
             dtype=torch.long,
             device=next(self.parameters()).device,
         )
-        *_, attention = self.forward(inputs)
-        attention = attention.mean((0, 1))
-        attention = symmetrize_matrix_(attention)
-        return attention
+        _, mrf_weight, _ = self.forward(inputs)
+        return mrf_weight.squeeze().norm(dim=(1, 3))
 
     @classmethod
     def from_args(
@@ -287,5 +268,11 @@ class Attention(BaseModel):
             choices=["adam", "lamb"],
             default="adam",
             help="Which optimizer to use.",
+        )
+        parser.add_argument(
+            "--factorize_vocab",
+            type=bool,
+            default=True,
+            help="Whether to factorize the vocab embedding.",
         )
         return parser
