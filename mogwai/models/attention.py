@@ -22,8 +22,7 @@ class Attention(BaseModel):
             for initialization.
         attention_head_size (int, optional): Dimension of queries and keys for a single head.
         num_attention_heads (int, optional): Number of attention heads.
-        optimizer (str, optional): Choice of optimizer from ["adam", "lamb", or "gremlin"]. "gremlin"
-            specifies GremlinAdam.
+        optimizer (str, optional): Choice of optimizer from ["adam", "lamb"]
         learning_rate (float, optional): Learning rate for training model.
         vocab_size (int, optional): Alphabet size of MSA.
         true_contacts (tensor, optional): True contacts for family. Used to compute
@@ -34,6 +33,8 @@ class Attention(BaseModel):
         lr_scheduler (str, optional): Learning schedule to use. Choose from ["constant", "warmup_constant"].
         warmup_steps (int, optional): Number of warmup steps for learning rate schedule.
         max_steps (int, optional): Maximum number of training batches before termination.
+        factorize_vocab (bool, optional): Factorize the (A, A) interaction terms into a product of
+            (A, d) and (d, A) matrices. True allows for arbitrary value dimension.
     """
 
     def __init__(
@@ -143,7 +144,15 @@ class Attention(BaseModel):
             )
         else:
             raise ValueError(f"Unrecognized optimizer {self.optimizer}")
-        return [optimizer]
+
+        lr_scheduler = lr_schedulers.get(self.lr_scheduler)(
+            optimizer, self.warmup_steps, self.trainer.max_steps
+        )
+        scheduler_dict = {
+            "scheduler": lr_scheduler,
+            "interval": "step",
+        }
+        return [optimizer], [scheduler_dict]
 
     def compute_regularization(self, targets, mrf_weight: torch.Tensor):
         """Compute regularization weights based on the number of targets."""
@@ -164,6 +173,8 @@ class Attention(BaseModel):
         return loss
 
     def compute_mrf_weight(self, inputs):
+        # Note that this is a mapping x -> MRF Weights(x),
+        # so it is more general than a simple Pairwise MRF.
         batch_size, seqlen = inputs.size()[:2]
         queries = self.query(inputs)
         keys = self.key(inputs)
@@ -268,6 +279,18 @@ class Attention(BaseModel):
             choices=["adam", "lamb"],
             default="adam",
             help="Which optimizer to use.",
+        )
+        parser.add_argument(
+            "--lr_scheduler",
+            choices=lr_schedulers.LR_SCHEDULERS.keys(),
+            default="warmup_constant",
+            help="Learning rate scheduler to use.",
+        )
+        parser.add_argument(
+            "--warmup_steps",
+            type=int,
+            default=0,
+            help="How many warmup steps to use when using a warmup schedule.",
         )
         parser.add_argument(
             "--factorize_vocab",
