@@ -22,7 +22,7 @@ class FactoredAttention(BaseModel):
             for initialization.
         attention_head_size (int, optional): Dimension of queries and keys for a single head.
         num_attention_heads (int, optional): Number of attention heads.
-        optimizer (str, optional): Choice of optimizer from ["adam", "lamb", or "gremlin"]. "gremlin"
+        optimizer (str, optional): Choice of optimizer from ["adam", "lamb", "gremlin"]. "gremlin"
             specifies GremlinAdam.
         learning_rate (float, optional): Learning rate for training model.
         vocab_size (int, optional): Alphabet size of MSA.
@@ -34,6 +34,8 @@ class FactoredAttention(BaseModel):
         lr_scheduler (str, optional): Learning schedule to use. Choose from ["constant", "warmup_constant"].
         warmup_steps (int, optional): Number of warmup steps for learning rate schedule.
         max_steps (int, optional): Maximum number of training batches before termination.
+        factorize_vocab (bool, optional): Factorize the (A, A) interaction terms into a product of
+            (A, d) and (d, A) matrices. True allows for arbitrary value dimension.
     """
 
     def __init__(
@@ -69,6 +71,8 @@ class FactoredAttention(BaseModel):
         self.warmup_steps = warmup_steps
         self.max_steps = max_steps
         self.factorize_vocab = factorize_vocab
+
+        print(self.use_bias)
 
         hidden_size = attention_head_size * num_attention_heads
 
@@ -130,6 +134,36 @@ class FactoredAttention(BaseModel):
             outputs = (loss,) + outputs
         return outputs
 
+    def configure_optimizers(self):
+        if self.optimizer == "adam":
+            optimizer = torch.optim.AdamW(
+                self.parameters(), lr=self.learning_rate, weight_decay=0.0
+            )
+        elif self.optimizer == "lamb":
+            optimizer = FusedLAMB(
+                self.parameters(),
+                lr=self.learning_rate,
+                weight_decay=0.0,
+            )
+        elif self.optimizer == "gremlin":
+            from ..optim import GremlinAdam
+
+            optimizer = GremlinAdam(
+                [{"params": self.parameters(), "gremlin": True}],
+                lr=self.learning_rate,
+            )
+        else:
+            raise ValueError(f"Unrecognized optimizer {self.optimizer}")
+
+        lr_scheduler = lr_schedulers.get(self.lr_scheduler)(
+            optimizer, self.warmup_steps, self.trainer.max_steps
+        )
+        scheduler_dict = {
+            "scheduler": lr_scheduler,
+            "interval": "step",
+        }
+        return [optimizer], [scheduler_dict]
+
     def compute_regularization(self, targets, mrf_weight: torch.Tensor):
         """Compute regularization weights based on the number of targets."""
         sample_size = (targets != self.pad_idx).sum()
@@ -162,36 +196,6 @@ class FactoredAttention(BaseModel):
         W = torch.einsum("hij,hab->iajb", attention, embed)  # L x A x L x A
         W = symmetrize_potts(W)
         return W
-
-    def configure_optimizers(self):
-        if self.optimizer == "adam":
-            optimizer = torch.optim.AdamW(
-                self.parameters(), lr=self.learning_rate, weight_decay=0.0
-            )
-        elif self.optimizer == "lamb":
-            optimizer = FusedLAMB(
-                self.parameters(),
-                lr=self.learning_rate,
-                weight_decay=0.0,
-            )
-        elif self.optimizer == "gremlin":
-            from ..optim import GremlinAdam
-
-            optimizer = GremlinAdam(
-                [{"params": self.parameters(), "gremlin": True}],
-                lr=self.learning_rate,
-            )
-        else:
-            raise ValueError(f"Unrecognized optimizer {self.optimizer}")
-
-        lr_scheduler = lr_schedulers.get(self.lr_scheduler)(
-            optimizer, self.warmup_steps, self.trainer.max_steps
-        )
-        scheduler_dict = {
-            "scheduler": lr_scheduler,
-            "interval": "step",
-        }
-        return [optimizer], [scheduler_dict]
 
     @torch.no_grad()
     def get_contacts(self, mrf_weight: Optional[torch.Tensor] = None):
