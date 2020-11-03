@@ -53,6 +53,7 @@ class FactoredAttention(BaseModel):
         lr_scheduler: str = "warmup_constant",
         warmup_steps: int = 0,
         max_steps: int = 10000,
+        factorize_vocab: bool = True,
     ):
         super().__init__(num_seqs, msa_length, learning_rate, vocab_size, true_contacts)
         self.l2_coeff = l2_coeff
@@ -67,6 +68,7 @@ class FactoredAttention(BaseModel):
         self.lr_scheduler = lr_scheduler
         self.warmup_steps = warmup_steps
         self.max_steps = max_steps
+        self.factorize_vocab = factorize_vocab
 
         hidden_size = attention_head_size * num_attention_heads
 
@@ -78,8 +80,18 @@ class FactoredAttention(BaseModel):
         nn.init.xavier_uniform_(key)
         self.key = nn.Parameter(key, requires_grad=True)
 
-        self.value = nn.Linear(vocab_size, hidden_size, bias=False)
-        self.output = nn.Linear(hidden_size, vocab_size, bias=False)
+        if self.factorize_vocab:
+            value = torch.empty(num_attention_heads, vocab_size, attention_head_size)
+            nn.init.xavier_uniform_(value)
+            self.value = nn.Parameter(value, requires_grad=True)
+
+            output = torch.empty(num_attention_heads, attention_head_size, vocab_size)
+            nn.init.xavier_uniform_(output)
+            self.output = nn.Parameter(output, requires_grad=True)
+        else:
+            value = torch.empty(num_attention_heads, vocab_size, vocab_size)
+            nn.init.xavier_uniform_(value)
+            self.value = nn.Parameter(value, requires_grad=True)
 
         if self.use_bias:
             if msa_counts is not None:
@@ -142,19 +154,10 @@ class FactoredAttention(BaseModel):
         attention = attention + self.diag_mask
         attention = attention.softmax(-1)  # H x L x L
 
-        value = self.value.weight
-        value = value.view(
-            self.num_attention_heads,
-            self.attention_head_size,
-            self.vocab_size,
-        )
-
-        output = self.output.weight
-        output = output.view(
-            self.vocab_size, self.num_attention_heads, self.attention_head_size
-        )
-
-        embed = torch.einsum("hda,bhd->hab", value, output)  # H x A x A
+        if self.factorize_vocab:
+            embed = torch.einsum("had,hdb->hab", self.value, self.output)  # H x A x A
+        else:
+            embed = self.value
 
         W = torch.einsum("hij,hab->iajb", attention, embed)  # L x A x L x A
         W = symmetrize_potts(W)
@@ -277,5 +280,11 @@ class FactoredAttention(BaseModel):
             type=int,
             default=0,
             help="How many warmup steps to use when using a warmup schedule.",
+        )
+        parser.add_argument(
+            "--factorize_vocab",
+            type=bool,
+            default=True,
+            help="Whether to factorize the vocab embedding.",
         )
         return parser
