@@ -228,3 +228,20 @@ def make_a3m(input_file: str, database: str, keep_intermediates: bool = False) -
     if not keep_intermediates:
         for intermediate in intermediates:
             intermediate.unlink()
+
+
+def make_a3m_cli():
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="Create an alignment from a query fasta file and uniclust database"
+    )
+    parser.add_argument("input_file", type=str, help="Input fasta file.")
+    parser.add_argument("database", type=str, help="Path to uniclust database.")
+    parser.add_argument(
+        "--keep_intermediates",
+        action="store_true",
+        help="Don't delete intermediate a3m files.",
+    )
+    args = parser.parse_args()
+    make_a3m(args.input_file, args.database, args.keep_intermediates)
