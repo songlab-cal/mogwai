@@ -20,6 +20,7 @@ setuptools.setup(
     entry_points={
         "console_scripts": [
             "mogwai-train=mogwai.train:train",
+            "mogwai-align=mogwai.alignment:make_a3m_cli",
         ]
     },
     classifiers=[
