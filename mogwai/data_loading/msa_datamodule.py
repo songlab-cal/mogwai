@@ -81,7 +81,7 @@ class MSADataModule(pl.LightningDataModule):
             batch_size=self.batch_size,
             shuffle=True,
             pin_memory=True,
-            num_workers=8,
+            num_workers=4,
             collate_fn=self.dataset.collater,
         )
 

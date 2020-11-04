@@ -41,7 +41,7 @@ class _FastaVocab:
         return [self.ALPHABET[i] for i in indices]
 
     def convert_tokens_to_indices(self, tokens: Sequence[str]) -> List[int]:
-        return [self.A2N[token] for token in tokens]
+        return [self.A2N.get(token, 20) for token in tokens]
 
     def tokenize(self, sequence: str) -> List[int]:
         return self.convert_tokens_to_indices(list(sequence))
