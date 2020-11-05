@@ -5,6 +5,7 @@ from pathlib import Path
 import torch
 import pytorch_lightning as pl
 from ..data.msa_dataset import MSADataset, MSAStats
+from ..data.trrosetta_dataset import TRRosetta_MSADataset
 from ..data.repeat_dataset import RepeatDataset
 from ..data.pseudolikelihood_dataset import PseudolikelihoodDataset
 from ..data.maskedlm_dataset import MaskedLMDataset
@@ -12,10 +13,10 @@ from ..vocab import FastaVocab
 
 
 class MSADataModule(pl.LightningDataModule):
-    """Creates dataset from A3M file of an MSA.
+    """Creates dataset from an MSA file.
 
     Args:
-        data (Union[str, Path]): Path to a3m file to load MSA.
+        data (Union[str, Path]): Path to a3m or npz file to load MSA.
         batch_size (int, optional): Batch size for DataLoader. Default 128.
         num_repeats (int, optional): Number of times to repeat dataset (can speed up
             training for small datasets). Default 1.
@@ -40,7 +41,7 @@ class MSADataModule(pl.LightningDataModule):
         mask_leave_prob: float = 0.0,
     ):
         super().__init__()
-        self.data = data
+        self.data = Path(data)
         self.batch_size = batch_size
         self.num_repeats = num_repeats
         self.task = task
@@ -49,7 +50,15 @@ class MSADataModule(pl.LightningDataModule):
         self.mask_leave_prob = mask_leave_prob
 
     def setup(self):
-        msa_dataset = MSADataset(self.data)
+        if self.data.suffix == ".a3m":
+            msa_dataset = MSADataset(self.data)
+        elif self.data.suffix == ".npz":
+            msa_dataset = TRRosetta_MSADataset(self.data)
+        else:
+            raise ValueError(
+                f"Cannot read file of type {self.data.suffix}, must be one of (.a3m, .npz)."
+            )
+
         dataset = RepeatDataset(msa_dataset, self.num_repeats)
         if self.task == "pseudolikelihood":
             dataset = PseudolikelihoodDataset(dataset)

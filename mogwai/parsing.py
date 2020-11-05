@@ -134,6 +134,7 @@ def extend(a, b, c, L, A, D):
     input:  3 coords (a,b,c), (L)ength, (A)ngle, and (D)ihedral
     output: 4th coord
     """
+
     def normalize(x):
         return x / np.linalg.norm(x, ord=2, axis=-1, keepdims=True)
 
@@ -159,12 +160,24 @@ def contacts_from_pdb(
     return distogram < distance_threshold
 
 
+def contacts_from_trrosetta(
+    filename: PathLike,
+    distance_threshold: float = 8.0,
+):
+    fam_data = np.load(filename)
+    dist = fam_data["dist6d"]
+    nat_contacts = dist * ((dist > 0) & (dist < distance_threshold))
+    return nat_contacts
+
+
 def read_contacts(filename: PathLike, **kwargs) -> np.ndarray:
     filename = Path(filename)
     if filename.suffix == ".cf":
         return contacts_from_cf(filename, **kwargs)
     elif filename.suffix == ".pdb":
         return contacts_from_pdb(filename, **kwargs)
+    elif filename.suffix == ".npz":
+        return contacts_from_trrosetta(filename, **kwargs)
     else:
         raise ValueError(
             f"Cannot read file of type {filename.suffix}, must be one of (.cf, .pdb)"
