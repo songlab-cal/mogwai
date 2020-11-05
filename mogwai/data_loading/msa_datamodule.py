@@ -112,7 +112,7 @@ class MSADataModule(pl.LightningDataModule):
         RepeatDataset.add_args(parser)
         PseudolikelihoodDataset.add_args(parser)
         MaskedLMDataset.add_args(parser)
-        parser.add_argument("data", type=str, help="Data file to load from.")
+        parser.add_argument("--data", type=str, help="Data file to load from.")
         parser.add_argument(
             "--batch_size", type=int, default=128, help="Batch size for training."
         )
