@@ -107,6 +107,30 @@ def train():
         auc_apc = contact_auc(contacts, true_contacts).item()
         print(f"AUC: {auc:0.3f}, AUC_APC: {auc_apc:0.3f}")
 
+        if args.wandb_project:
+            import matplotlib.pyplot as plt
+            import wandb
+
+            from mogwai.plotting import (
+                plot_colored_preds_on_trues,
+                plot_precision_vs_length,
+            )
+
+            filename = "top_L_contacts.png"
+            plot_colored_preds_on_trues(contacts, true_contacts, point_size=5)
+            logger.log_metrics({filename: wandb.Image(plt)})
+            plt.close()
+
+            filename = "top_L_contacts_apc.png"
+            plot_colored_preds_on_trues(apc(contacts), true_contacts, point_size=5)
+            logger.log_metrics({filename: wandb.Image(plt)})
+            plt.close()
+
+            filename = "precision_vs_L.png"
+            plot_precision_vs_length(contacts, true_contacts)
+            logger.log_metrics({filename: wandb.Image(plt)})
+            plt.close()
+
     if args.output_file is not None:
         torch.save(model.state_dict(), args.output_file)
 
