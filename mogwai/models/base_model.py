@@ -70,6 +70,25 @@ class BaseModel(pl.LightningModule):
                 on_epoch=True,
                 prog_bar=True,
             )
+            p_at_l = self.get_precision(do_apc=False)
+            p_at_l_5 = self.get_precision(do_apc=False, cutoff=5)
+            self.log("pr_at_L", p_at_l, on_step=False, on_epoch=True, prog_bar=True)
+            self.log(
+                "pr_at_L_5", p_at_l_5, on_step=False, on_epoch=True, prog_bar=False
+            )
+
+            p_at_l_apc = self.get_precision(do_apc=True)
+            p_at_l_5_apc = self.get_precision(do_apc=True, cutoff=5)
+            self.log(
+                "pr_at_L_apc", p_at_l_apc, on_step=False, on_epoch=True, prog_bar=False
+            )
+            self.log(
+                "pr_at_L_5_apc",
+                p_at_l_5_apc,
+                on_step=False,
+                on_epoch=True,
+                prog_bar=False,
+            )
 
         return {
             "loss": loss,
