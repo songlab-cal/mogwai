@@ -96,7 +96,7 @@ def train():
             )
 
     # Initialize Trainer
-    trainer = pl.Trainer.from_argparse_args(args, **kwargs)
+    trainer = pl.Trainer.from_argparse_args(args, checkpoint_callback=False, **kwargs)
 
     trainer.fit(model, msa_dm)
 
