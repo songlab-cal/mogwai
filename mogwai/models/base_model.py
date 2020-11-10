@@ -102,9 +102,9 @@ class BaseModel(pl.LightningModule):
     def get_precision(
         self,
         do_apc: bool = True,
-        cutoff: int = 1,
         thresh: float = 0.01,
         superdiag: int = 6,
+        cutoff: int = 1,
     ):
         if not self.has_true_contacts:
             raise ValueError(
@@ -114,7 +114,7 @@ class BaseModel(pl.LightningModule):
         if do_apc:
             contacts = apc(contacts)
         return precision_at_cutoff(
-            contacts, self._true_contacts, cutoff, thresh, superdiag  # type: ignore
+            contacts, self._true_contacts, thresh, superdiag, cutoff  # type: ignore
         )
 
     @torch.no_grad()
