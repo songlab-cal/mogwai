@@ -55,7 +55,7 @@ class FactoredAttention(BaseModel):
         lr_scheduler: str = "warmup_constant",
         warmup_steps: int = 0,
         max_steps: int = 10000,
-        factorize_vocab: bool = True,
+        factorize_vocab: bool = False,
     ):
         super().__init__(num_seqs, msa_length, learning_rate, vocab_size, true_contacts)
         self.l2_coeff = l2_coeff
@@ -230,6 +230,7 @@ class FactoredAttention(BaseModel):
             pad_idx=pad_idx,
             lr_scheduler=args.lr_scheduler,
             warmup_steps=args.warmup_steps,
+            factorize_vocab=args.factorize_vocab,
         )
 
     @staticmethod
@@ -287,8 +288,7 @@ class FactoredAttention(BaseModel):
         )
         parser.add_argument(
             "--factorize_vocab",
-            type=bool,
-            default=True,
+            action="store_true",
             help="Whether to factorize the vocab embedding.",
         )
         return parser
