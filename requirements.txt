@@ -1,7 +1,7 @@
 biopython
 matplotlib
 numpy
-pytorch-lightning==1.0.5  # For wandb sweep logging.
+pytorch-lightning==1.0.5 
 scipy
 torch
 biotite
