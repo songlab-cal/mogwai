@@ -46,8 +46,8 @@ def init_pseudolik_mask(msa_length: int) -> torch.Tensor:
 
 
 def gremlin_weight_decay_coeffs(
-    num_seqs: int, msa_length: int, l2_coeff: float, vocab_size: int = 20
+    batch_size: int, msa_length: int, l2_coeff: float, vocab_size: int = 20
 ) -> Tuple[float, float]:
-    weight_coeff = l2_coeff * (msa_length - 1) * (vocab_size - 1) / num_seqs
-    bias_coeff = l2_coeff / num_seqs
+    weight_coeff = l2_coeff * vocab_size / (2 * batch_size)
+    bias_coeff = l2_coeff / (batch_size * msa_length)
     return weight_coeff, bias_coeff
