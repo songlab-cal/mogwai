@@ -95,8 +95,10 @@ class Gremlin(BaseModel):
     def compute_regularization(self, targets):
         """Compute regularization weights based on the number of targets."""
         sample_size = (targets != self.pad_idx).sum()
+        # After multiplying by sample_size, comes to lambda * L * A / 2
         reg = self._weight_reg_coeff * self.weight.pow(2).sum()
         if self.use_bias:
+            # After multiplying by sample_size, comes to lambda
             reg += self._bias_reg_coeff * self.bias.pow(2).sum()
 
         return reg * sample_size
