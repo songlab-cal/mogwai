@@ -42,11 +42,13 @@ class FactoredAttention(BaseModel):
         self,
         num_seqs: int,
         msa_length: int,
+        batch_size: int,
         msa_counts: Optional[torch.Tensor] = None,
         attention_head_size: int = 16,
         num_attention_heads: int = 32,
         optimizer: str = "adam",
         learning_rate: float = 1e-3,
+        use_adaptive_lr: bool = False,
         vocab_size: int = 20,
         true_contacts: Optional[torch.Tensor] = None,
         l2_coeff: float = 1e-2,
@@ -71,6 +73,11 @@ class FactoredAttention(BaseModel):
         self.warmup_steps = warmup_steps
         self.max_steps = max_steps
         self.factorize_vocab = factorize_vocab
+        self.batch_size = batch_size
+        self.use_adaptive_lr = use_adaptive_lr
+
+        if self.use_adaptive_lr:
+            self.learning_rate *= math.log(self.num_seqs) / self.msa_length
 
         hidden_size = attention_head_size * num_attention_heads
 
@@ -107,7 +114,7 @@ class FactoredAttention(BaseModel):
         self.register_buffer("one_hot", torch.eye(vocab_size + 1, vocab_size))
 
         self._weight_reg_coeff, self._bias_reg_coeff = gremlin_weight_decay_coeffs(
-            num_seqs, msa_length, l2_coeff, vocab_size
+            batch_size, msa_length, l2_coeff, vocab_size
         )
         # self.save_hyperparameters()
 
@@ -165,9 +172,9 @@ class FactoredAttention(BaseModel):
     def compute_regularization(self, targets, mrf_weight: torch.Tensor):
         """Compute regularization weights based on the number of targets."""
         sample_size = (targets != self.pad_idx).sum()
-        reg = self._weight_reg_coeff * mrf_weight.norm()
+        reg = self._weight_reg_coeff * mrf_weight.pow(2).sum()
         if self.use_bias:
-            reg += self._bias_reg_coeff * self.bias.norm()
+            reg += self._bias_reg_coeff * self.bias.pow(2).sum()
 
         return reg * sample_size
 
@@ -176,8 +183,8 @@ class FactoredAttention(BaseModel):
         loss = nn.CrossEntropyLoss(ignore_index=self.pad_idx, reduction="sum")(
             logits.view(-1, self.vocab_size), targets.view(-1)
         )
+        loss *= self.num_seqs / self.batch_size
         loss += self.compute_regularization(targets, mrf_weight)
-        loss = loss / logits.size(0)
         return loss
 
     def compute_mrf_weight(self):
@@ -208,6 +215,7 @@ class FactoredAttention(BaseModel):
         args: Namespace,
         num_seqs: int,
         msa_length: int,
+        batch_size: int,
         msa_counts: Optional[torch.Tensor] = None,
         vocab_size: int = 20,
         pad_idx: int = 20,
@@ -216,11 +224,13 @@ class FactoredAttention(BaseModel):
         return cls(
             num_seqs=num_seqs,
             msa_length=msa_length,
+            batch_size=batch_size,
             msa_counts=msa_counts,
             attention_head_size=args.attention_head_size,
             num_attention_heads=args.num_attention_heads,
             optimizer=args.optimizer,
             learning_rate=args.learning_rate,
+            use_adaptive_lr=args.use_adaptive_lr,
             vocab_size=vocab_size,
             true_contacts=true_contacts,
             l2_coeff=args.l2_coeff,
@@ -238,6 +248,11 @@ class FactoredAttention(BaseModel):
             type=float,
             default=1e-3,
             help="Learning rate for training.",
+        )
+        parser.add_argument(
+            "--use_adaptive_lr",
+            action="store_true",
+            help="Whether to rescale lr as a function of MSA.",
         )
         parser.add_argument(
             "--l2_coeff",
