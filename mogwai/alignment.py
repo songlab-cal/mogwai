@@ -227,7 +227,8 @@ def make_a3m(input_file: str, database: str, keep_intermediates: bool = False) -
 
     if not keep_intermediates:
         for intermediate in intermediates:
-            intermediate.unlink()
+            if intermediate.exists():
+                intermediate.unlink()
 
 
 def make_a3m_cli():
