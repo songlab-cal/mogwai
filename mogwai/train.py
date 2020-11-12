@@ -66,7 +66,6 @@ def train():
 
     # Initialize model
     num_seqs, msa_length, msa_counts = msa_dm.get_stats()
-    batch_size = msa_dm.batch_size
     model = model_type.from_args(
         args,
         num_seqs=num_seqs,
@@ -75,7 +74,6 @@ def train():
         vocab_size=len(FastaVocab),
         pad_idx=FastaVocab.pad_idx,
         true_contacts=true_contacts,
-        batch_size=batch_size,
     )
 
     kwargs = {}
