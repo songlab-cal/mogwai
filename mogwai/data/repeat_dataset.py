@@ -32,7 +32,7 @@ class RepeatDataset(BaseWrapperDataset):
         parser.add_argument(
             "--num_repeats",
             type=int,
-            default=1,
+            default=10000,
             help="Number of times to repeat the input dataset.",
         )
         return parser

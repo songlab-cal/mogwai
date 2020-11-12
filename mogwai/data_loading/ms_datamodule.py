@@ -33,7 +33,7 @@ class MSDataModule(pl.LightningDataModule):
         self,
         data: Union[str, Path],
         batch_size: int = 128,
-        num_repeats: int = 1,
+        num_repeats: int = 100,
         task: str = "pseudolikelihood",
         mask_prob: float = 0.15,
         mask_rnd_prob: float = 0.1,
