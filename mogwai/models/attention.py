@@ -39,6 +39,7 @@ class Attention(BaseModel):
         self,
         num_seqs: int,
         msa_length: int,
+        batch_size: int,
         msa_counts: Optional[torch.Tensor] = None,
         attention_head_size: int = 16,
         num_attention_heads: int = 32,
@@ -59,6 +60,7 @@ class Attention(BaseModel):
         self.pad_idx = pad_idx
         self.num_seqs = num_seqs
         self.msa_length = msa_length
+        self.batch_size = batch_size
         self.num_attention_heads = num_attention_heads
         self.attention_head_size = attention_head_size
         self.optimizer = optimizer
@@ -86,7 +88,7 @@ class Attention(BaseModel):
         self.register_buffer("diag_mask", torch.eye(msa_length) * -10000)
 
         self._weight_reg_coeff, self._bias_reg_coeff = gremlin_weight_decay_coeffs(
-            num_seqs, msa_length, l2_coeff, vocab_size
+            batch_size, msa_length, l2_coeff, vocab_size
         )
         # self.save_hyperparameters()
 
@@ -177,8 +179,8 @@ class Attention(BaseModel):
         loss = nn.CrossEntropyLoss(ignore_index=self.pad_idx, reduction="sum")(
             logits.view(-1, self.vocab_size), targets.view(-1)
         )
+        loss *= self.num_seqs / self.batch_size
         loss += self.compute_regularization(targets, mrf_weight)
-        loss = loss / logits.size(0)
         return loss
 
     def compute_mrf_weight(self, attention):
@@ -216,6 +218,7 @@ class Attention(BaseModel):
         args: Namespace,
         num_seqs: int,
         msa_length: int,
+        batch_size: int,
         msa_counts: Optional[torch.Tensor] = None,
         vocab_size: int = 20,
         pad_idx: int = 20,
@@ -224,6 +227,7 @@ class Attention(BaseModel):
         return cls(
             num_seqs=num_seqs,
             msa_length=msa_length,
+            batch_size=batch_size,
             msa_counts=msa_counts,
             attention_head_size=args.attention_head_size,
             num_attention_heads=args.num_attention_heads,
