@@ -21,7 +21,6 @@ class Gremlin(BaseModel):
         self,
         num_seqs: int,
         msa_length: int,
-        batch_size: int,
         msa_counts: Optional[torch.Tensor] = None,
         optimizer: str = "gremlin_adam",
         learning_rate: float = 0.5,
@@ -35,7 +34,6 @@ class Gremlin(BaseModel):
         self.l2_coeff = l2_coeff
         self.use_bias = use_bias
         self.pad_idx = pad_idx
-        self.batch_size = batch_size
         self.optimizer = optimizer
 
         weight = init_potts_weight(msa_length, vocab_size)
@@ -52,9 +50,6 @@ class Gremlin(BaseModel):
             self.bias = nn.Parameter(bias, True)
 
         self.register_buffer("one_hot", torch.eye(vocab_size + 1, vocab_size))
-        self._weight_reg_coeff, self._bias_reg_coeff = gremlin_weight_decay_coeffs(
-            batch_size, msa_length, l2_coeff, vocab_size
-        )
 
     @torch.no_grad()
     def apply_constraints(self):
@@ -88,18 +83,24 @@ class Gremlin(BaseModel):
         loss = nn.CrossEntropyLoss(ignore_index=self.pad_idx, reduction="sum")(
             logits.view(-1, self.vocab_size), targets.view(-1)
         )
-        loss *= self.num_seqs / self.batch_size
+        loss *= self.num_seqs / logits.size(0)
         loss += self.compute_regularization(targets)
         return loss
 
     def compute_regularization(self, targets):
         """Compute regularization weights based on the number of targets."""
+        batch_size = targets.size(0)
+
+        weight_reg_coeff, bias_reg_coeff = gremlin_weight_decay_coeffs(
+            batch_size, self.msa_length, self.l2_coeff, self.vocab_size
+        )
+
         sample_size = (targets != self.pad_idx).sum()
         # After multiplying by sample_size, comes to lambda * L * A / 2
-        reg = self._weight_reg_coeff * self.weight.pow(2).sum()
+        reg = weight_reg_coeff * self.weight.pow(2).sum()
         if self.use_bias:
             # After multiplying by sample_size, comes to lambda
-            reg += self._bias_reg_coeff * self.bias.pow(2).sum()
+            reg += bias_reg_coeff * self.bias.pow(2).sum()
 
         return reg * sample_size
 
@@ -129,7 +130,6 @@ class Gremlin(BaseModel):
         args: Namespace,
         num_seqs: int,
         msa_length: int,
-        batch_size: int,
         msa_counts: Optional[torch.Tensor] = None,
         vocab_size: int = 20,
         pad_idx: int = 20,
@@ -139,7 +139,6 @@ class Gremlin(BaseModel):
             num_seqs=num_seqs,
             msa_length=msa_length,
             msa_counts=msa_counts,
-            batch_size=batch_size,
             learning_rate=args.learning_rate,
             vocab_size=vocab_size,
             true_contacts=true_contacts,
