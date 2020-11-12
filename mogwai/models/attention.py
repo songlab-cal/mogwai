@@ -39,7 +39,6 @@ class Attention(BaseModel):
         self,
         num_seqs: int,
         msa_length: int,
-        batch_size: int,
         msa_counts: Optional[torch.Tensor] = None,
         attention_head_size: int = 16,
         num_attention_heads: int = 32,
@@ -60,7 +59,6 @@ class Attention(BaseModel):
         self.pad_idx = pad_idx
         self.num_seqs = num_seqs
         self.msa_length = msa_length
-        self.batch_size = batch_size
         self.num_attention_heads = num_attention_heads
         self.attention_head_size = attention_head_size
         self.optimizer = optimizer
@@ -87,9 +85,6 @@ class Attention(BaseModel):
         self.register_buffer("one_hot", torch.eye(vocab_size + 1, vocab_size))
         self.register_buffer("diag_mask", torch.eye(msa_length) * -10000)
 
-        self._weight_reg_coeff, self._bias_reg_coeff = gremlin_weight_decay_coeffs(
-            batch_size, msa_length, l2_coeff, vocab_size
-        )
         # self.save_hyperparameters()
 
     def maybe_onehot_inputs(self, src_tokens):
@@ -165,12 +160,17 @@ class Attention(BaseModel):
 
     def compute_regularization(self, targets, mrf_weight: torch.Tensor):
         """Compute regularization weights based on the number of targets."""
+        batch_size = targets.size(0)
+
+        weight_reg_coeff, bias_reg_coeff = gremlin_weight_decay_coeffs(
+            batch_size, self.msa_length, self.l2_coeff, self.vocab_size
+        )
         sample_size = (targets != self.pad_idx).sum()
 
         batch_size = mrf_weight.size()[0]
-        reg = self._weight_reg_coeff * mrf_weight.norm()
+        reg = weight_reg_coeff * mrf_weight.norm()
         if self.use_bias:
-            reg += self._bias_reg_coeff * self.bias.norm()
+            reg += bias_reg_coeff * self.bias.norm()
 
         return reg * sample_size
 
@@ -179,7 +179,7 @@ class Attention(BaseModel):
         loss = nn.CrossEntropyLoss(ignore_index=self.pad_idx, reduction="sum")(
             logits.view(-1, self.vocab_size), targets.view(-1)
         )
-        loss *= self.num_seqs / self.batch_size
+        loss *= self.num_seqs / logits.size(0)
         loss += self.compute_regularization(targets, mrf_weight)
         return loss
 
@@ -218,7 +218,6 @@ class Attention(BaseModel):
         args: Namespace,
         num_seqs: int,
         msa_length: int,
-        batch_size: int,
         msa_counts: Optional[torch.Tensor] = None,
         vocab_size: int = 20,
         pad_idx: int = 20,
@@ -227,7 +226,6 @@ class Attention(BaseModel):
         return cls(
             num_seqs=num_seqs,
             msa_length=msa_length,
-            batch_size=batch_size,
             msa_counts=msa_counts,
             attention_head_size=args.attention_head_size,
             num_attention_heads=args.num_attention_heads,
