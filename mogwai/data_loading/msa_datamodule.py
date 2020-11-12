@@ -34,7 +34,7 @@ class MSADataModule(pl.LightningDataModule):
         self,
         data: Union[str, Path],
         batch_size: int = 128,
-        num_repeats: int = 1,
+        num_repeats: int = 100,
         task: str = "pseudolikelihhod",
         mask_prob: float = 0.15,
         mask_rnd_prob: float = 0.0,
@@ -58,7 +58,6 @@ class MSADataModule(pl.LightningDataModule):
             raise ValueError(
                 f"Cannot read file of type {self.data.suffix}, must be one of (.a3m, .npz)."
             )
-
         dataset = RepeatDataset(msa_dataset, self.num_repeats)
         if self.task == "pseudolikelihood":
             dataset = PseudolikelihoodDataset(dataset)
