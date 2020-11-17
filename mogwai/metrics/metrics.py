@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Optional
 
 import numpy as np
 import torch
@@ -38,6 +38,84 @@ def precision_at_cutoff(
     precision = num_positives / num_preds
 
     return precision
+
+
+
+# https://github.com/rmrao/explore-protein-attentcion/blob/main/metrics.py
+def precisions_in_range(
+    predictions: torch.Tensor,
+    targets: torch.Tensor,
+    src_lengths: Optional[torch.Tensor] = None,
+    minsep: int = 6,
+    maxsep: Optional[int] = None,
+):
+    if predictions.dim() == 2:
+        predictions = predictions.unsqueeze(0)
+    if targets.dim() == 2:
+        targets = targets.unsqueeze(0)
+
+    # Check sizes
+    if predictions.size() != targets.size():
+        raise ValueError(
+            f"Size mismatch. Received predictions of size {predictions.size()}, "
+            f"targets of size {targets.size()}"
+        )
+    device = predictions.device
+
+    batch_size, seqlen, _ = predictions.size()
+    seqlen_range = torch.arange(seqlen, device=device)
+
+    sep = seqlen_range.unsqueeze(0) - seqlen_range.unsqueeze(1)
+    sep = sep.unsqueeze(0)
+    valid_mask = sep >= minsep
+
+    if maxsep is not None:
+        valid_mask &= sep < maxsep
+
+    if src_lengths is not None:
+        valid = seqlen_range.unsqueeze(0) < src_lengths.unsqueeze(1)
+        valid_mask &= valid.unsqueeze(1) & valid.unsqueeze(2)
+    else:
+        src_lengths = torch.full(
+            [batch_size], seqlen, device=device, dtype=torch.long)
+
+    predictions = predictions.masked_fill(~valid_mask, float("-inf"))
+
+    x_ind, y_ind = np.triu_indices(seqlen, minsep)
+    predictions_upper = predictions[:, x_ind, y_ind]
+    targets_upper = targets[:, x_ind, y_ind]
+
+    indices = predictions_upper.topk(
+        dim=-1, k=seqlen, sorted=True, largest=True
+    ).indices
+
+    topk_targets = targets_upper[torch.arange(batch_size), indices] > 0.01
+
+    cumulative_dist = topk_targets.type_as(predictions).cumsum(-1)
+
+    gather_indices = (
+        torch.arange(0.1, 1.1, 0.1, device=device).unsqueeze(0)
+        * src_lengths.unsqueeze(1)
+    ).type(torch.long) - 1
+
+    binned_cumulative_dist = cumulative_dist.gather(1, gather_indices)
+    binned_precisions = binned_cumulative_dist / (gather_indices + 1).type_as(
+        binned_cumulative_dist
+    )
+
+    pl10 = binned_precisions[:, 0]
+    pl5 = binned_precisions[:, 1]
+    pl2 = binned_precisions[:, 4]
+    pl = binned_precisions[:, 9]
+    auc = binned_precisions.mean(-1)
+
+    return {
+        "auc": auc,
+        "pr_at_l": pl,
+        "pr_at_l_2": pl2,
+        "pr_at_l_5": pl5,
+        "pr_at_l_10": pl10
+    }
 
 
 def contact_auc(
