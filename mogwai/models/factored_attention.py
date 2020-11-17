@@ -72,8 +72,6 @@ class FactoredAttention(BaseModel):
         self.max_steps = max_steps
         self.factorize_vocab = factorize_vocab
 
-        print(self.use_bias)
-
         hidden_size = attention_head_size * num_attention_heads
 
         query = torch.empty(msa_length, num_attention_heads, attention_head_size)
