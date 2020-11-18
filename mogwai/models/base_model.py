@@ -51,42 +51,41 @@ class BaseModel(pl.LightningModule):
         else:
             loss, *_ = self.forward(batch)
 
-        compute_auc = self.global_step & 10 == 0 and self.has_true_contacts
-        if compute_auc or self.trainer.fast_dev_run:
+        if self.has_true_contacts:
             auc = self.get_auc(do_apc=False)
             auc_apc = self.get_auc(do_apc=True)
 
             self._max_auc.masked_fill_(self._max_auc < auc, auc)
 
-            self.log("auc", auc, on_step=True, on_epoch=False, prog_bar=True)
-            self.log("auc_apc", auc_apc, on_step=False, on_epoch=True, prog_bar=True)
+            self.log("auc", auc, on_step=True, on_epoch=False, prog_bar=False)
+            self.log("auc_apc", auc_apc, on_step=True, on_epoch=False, prog_bar=True)
             self.log(
-                "max_auc", self._max_auc, on_step=False, on_epoch=True, prog_bar=True
+                "max_auc", self._max_auc, on_step=True, on_epoch=False, prog_bar=True
             )
             self.log(
                 "delta_auc",
                 self._max_auc - auc,
-                on_step=False,
-                on_epoch=True,
-                prog_bar=True,
+                on_step=True,
+                on_epoch=False,
+                prog_bar=False,
             )
             p_at_l = self.get_precision(do_apc=False)
             p_at_l_5 = self.get_precision(do_apc=False, cutoff=5)
-            self.log("pr_at_L", p_at_l, on_step=False, on_epoch=True, prog_bar=True)
+            self.log("pr_at_L", p_at_l, on_step=True, on_epoch=False, prog_bar=False)
             self.log(
-                "pr_at_L_5", p_at_l_5, on_step=False, on_epoch=True, prog_bar=False
+                "pr_at_L_5", p_at_l_5, on_step=True, on_epoch=False, prog_bar=False
             )
 
             p_at_l_apc = self.get_precision(do_apc=True)
             p_at_l_5_apc = self.get_precision(do_apc=True, cutoff=5)
             self.log(
-                "pr_at_L_apc", p_at_l_apc, on_step=False, on_epoch=True, prog_bar=False
+                "pr_at_L_apc", p_at_l_apc, on_step=True, on_epoch=False, prog_bar=True
             )
             self.log(
                 "pr_at_L_5_apc",
                 p_at_l_5_apc,
-                on_step=False,
-                on_epoch=True,
+                on_step=True,
+                on_epoch=False,
                 prog_bar=False,
             )
 
