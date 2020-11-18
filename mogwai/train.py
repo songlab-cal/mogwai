@@ -2,6 +2,7 @@ from argparse import ArgumentParser
 import pytorch_lightning as pl
 import torch
 from pathlib import Path
+import numpy as np
 
 from mogwai.data_loading import MSADataModule
 from mogwai.parsing import read_contacts
@@ -35,6 +36,12 @@ def train():
         type=str,
         default=None,
         help="Optional file to output gremlin weights.",
+    )
+    parser.add_argument(
+        "--contacts_file",
+        type=str,
+        default=None,
+        help="Optional file to output gremlin contacts.",
     )
     parser.add_argument(
         "--wandb_project",
@@ -133,6 +140,14 @@ def train():
 
     if args.output_file is not None:
         torch.save(model.state_dict(), args.output_file)
+
+    if args.contacts_file is not None:
+        contacts = model.get_contacts()
+        contacts = apc(contacts)
+        x_ind, y_ind = np.triu_indices_from(contacts, 1)
+        contacts = contacts[x_ind, y_ind]
+        torch.save(contacts, args.contacts_file)
+
 
 
 if __name__ == "__main__":

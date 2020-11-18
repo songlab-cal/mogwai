@@ -25,6 +25,14 @@ def parse_fasta(
     remove_gaps: bool = False,
 ) -> Tuple[List[str], List[str]]:
 
+    filename = Path(filename)
+    if filename.suffix == ".sto":
+        form = "stockholm"
+    elif filename.suffix in (".fas", ".fasta", ".a3m"):
+        form = "fasta"
+    else:
+        raise ValueError(f"Unknown file format {filename.suffix}")
+
     translate_dict: Dict[str, Optional[str]] = {}
     if remove_insertions:
         translate_dict.update(dict.fromkeys(string.ascii_lowercase))
@@ -39,8 +47,7 @@ def parse_fasta(
 
     def process_record(record: SeqIO.SeqRecord):
         return record.description, str(record.seq).translate(translation)
-
-    records = SeqIO.parse(str(filename), "fasta")
+    records = SeqIO.parse(str(filename), form)
     records = map(process_record, records)
     records = zip(*records)
     headers, sequences = tuple(records)
