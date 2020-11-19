@@ -129,8 +129,8 @@ class Attention(BaseModel):
 
         outputs = (logits, attention)
         if targets is not None:
-            mrf_weight = self.compute_mrf_weight(attention)
-            loss = self.loss(logits, targets, mrf_weight)
+            # mrf_weight = self.compute_mrf_weight(attention)
+            loss = self.loss(logits, targets)
             outputs = (loss,) + outputs
 
         return outputs
@@ -138,13 +138,13 @@ class Attention(BaseModel):
     def configure_optimizers(self):
         if self.optimizer == "adam":
             optimizer = torch.optim.AdamW(
-                self.parameters(), lr=self.learning_rate, weight_decay=0.0
+                self.parameters(), lr=self.learning_rate, weight_decay=self.l2_coeff
             )
         elif self.optimizer == "lamb":
             optimizer = FusedLAMB(
                 self.parameters(),
                 lr=self.learning_rate,
-                weight_decay=0.0,
+                weight_decay=self.l2_coeff,
             )
         else:
             raise ValueError(f"Unrecognized optimizer {self.optimizer}")
@@ -160,44 +160,45 @@ class Attention(BaseModel):
 
     def compute_regularization(self, targets, mrf_weight: torch.Tensor):
         """Compute regularization weights based on the number of targets."""
-        batch_size = targets.size(0)
+        raise NotImplementedError
+        # batch_size = targets.size(0)
 
-        weight_reg_coeff, bias_reg_coeff = gremlin_weight_decay_coeffs(
-            batch_size, self.msa_length, self.l2_coeff, self.vocab_size
-        )
-        sample_size = (targets != self.pad_idx).sum()
+        # weight_reg_coeff, bias_reg_coeff = gremlin_weight_decay_coeffs(
+        #     batch_size, self.msa_length, self.l2_coeff, self.vocab_size
+        # )
+        # sample_size = (targets != self.pad_idx).sum()
 
-        batch_size = mrf_weight.size()[0]
-        reg = weight_reg_coeff * mrf_weight.norm()
-        if self.use_bias:
-            reg += bias_reg_coeff * self.bias.norm()
+        # batch_size = mrf_weight.size()[0]
+        # reg = weight_reg_coeff * mrf_weight.norm()
+        # if self.use_bias:
+        #     reg += bias_reg_coeff * self.bias.norm()
 
-        return reg * sample_size
+        # return reg * sample_size
 
-    def loss(self, logits, targets, mrf_weight: torch.Tensor):
+    def loss(self, logits, targets):
         """Compute GREMLIN loss w/ L2 Regularization"""
-        loss = nn.CrossEntropyLoss(ignore_index=self.pad_idx, reduction="sum")(
+        loss = nn.CrossEntropyLoss(ignore_index=self.pad_idx, reduction="mean")(
             logits.view(-1, self.vocab_size), targets.view(-1)
         )
-        loss *= self.num_seqs / logits.size(0)
-        loss += self.compute_regularization(targets, mrf_weight)
+        # loss += self.compute_regularization(targets, mrf_weight)
         return loss
 
     def compute_mrf_weight(self, attention):
-        # Note that attention gives a mapping x -> MRF Weights(x),
+        raise NotImplementedError
+        # # Note that attention gives a mapping x -> MRF Weights(x),
         # so it is more general than a simple Pairwise MRF.
-        value = self.value.weight.view(
-            self.vocab_size + self.msa_length,
-            self.num_attention_heads,
-            self.attention_head_size,
-        )
-        output = self.output.weight
-        output = output.view(
-            self.vocab_size, self.num_attention_heads, self.attention_head_size
-        )
-        embed = torch.einsum("ahd,bhd->hab", value, output)  # H x (A + L) x A
-        mrf_weight = torch.einsum("hij,hab->iajb", attention.sum(0), embed)
-        return mrf_weight
+        # value = self.value.weight.view(
+        #     self.vocab_size + self.msa_length,
+        #     self.num_attention_heads,
+        #     self.attention_head_size,
+        # )
+        # output = self.output.weight
+        # output = output.view(
+        #     self.vocab_size, self.num_attention_heads, self.attention_head_size
+        # )
+        # embed = torch.einsum("ahd,bhd->hab", value, output)  # H x (A + L) x A
+        # mrf_weight = torch.einsum("hij,hab->iajb", attention.sum(0), embed)
+        # return mrf_weight
 
     @torch.no_grad()
     def get_contacts(self):
@@ -209,8 +210,7 @@ class Attention(BaseModel):
             device=next(self.parameters()).device,
         )
         *_, attention = self.forward(inputs)
-        mrf_weight = self.compute_mrf_weight(attention).squeeze()
-        return mrf_weight.norm(dim=(1, 3))
+        return attention.squeeze().mean(0)
 
     @classmethod
     def from_args(
