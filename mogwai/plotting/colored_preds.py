@@ -10,6 +10,7 @@ def plot_colored_preds_on_trues(
     superdiag: int = 6,
     cutoff: int = 1,
     point_size: int = 1,
+    ax=plt,
 ):
     """Plot contact map predictions overlayed on true contacts.
 
@@ -53,17 +54,17 @@ def plot_colored_preds_on_trues(
         if meas[i, j] >= thresh:
             true_contacts_ij.append((i, j))
 
-    plt.imshow(meas, cmap="gray_r", alpha=0.1, label="measured contacts")
+    ax.imshow(meas, cmap="gray_r", alpha=0.1, label="measured contacts")
     if len(true_contacts_ij) > 1:
         x, y = zip(*true_contacts_ij)
-        plt.scatter(x, y, c="grey", s=point_size, alpha=0.3)
+        ax.scatter(x, y, c="grey", s=point_size, alpha=0.3)
         # plot symmetric values
-        plt.scatter(y, x, c="grey", s=point_size, alpha=0.3)
+        ax.scatter(y, x, c="grey", s=point_size, alpha=0.3)
     if len(true_pos) > 1:
         x, y = zip(*true_pos)
-        plt.scatter(x, y, c="b", s=point_size, alpha=0.4, label="true positives")
-        plt.scatter(y, x, c="b", s=point_size, alpha=0.4, label="true positives")
+        ax.scatter(x, y, c="b", s=point_size, alpha=0.4, label="true positives")
+        ax.scatter(y, x, c="b", s=point_size, alpha=0.4, label="true positives")
     if len(false_pos) > 1:
         x, y = zip(*false_pos)
-        plt.scatter(x, y, c="r", s=point_size, alpha=0.4, label="false positives")
-        plt.scatter(y, x, c="r", s=point_size, alpha=0.4, label="false positives")
+        ax.scatter(x, y, c="r", s=point_size, alpha=0.4, label="false positives")
+        ax.scatter(y, x, c="r", s=point_size, alpha=0.4, label="false positives")
