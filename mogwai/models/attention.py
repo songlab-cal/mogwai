@@ -85,9 +85,6 @@ class Attention(BaseModel):
         self.register_buffer("one_hot", torch.eye(vocab_size + 1, vocab_size))
         self.register_buffer("diag_mask", torch.eye(msa_length) * -10000)
 
-        self._weight_reg_coeff, self._bias_reg_coeff = gremlin_weight_decay_coeffs(
-            num_seqs, msa_length, l2_coeff, vocab_size
-        )
         # self.save_hyperparameters()
 
     def maybe_onehot_inputs(self, src_tokens):
@@ -163,12 +160,17 @@ class Attention(BaseModel):
 
     def compute_regularization(self, targets, mrf_weight: torch.Tensor):
         """Compute regularization weights based on the number of targets."""
+        batch_size = targets.size(0)
+
+        weight_reg_coeff, bias_reg_coeff = gremlin_weight_decay_coeffs(
+            batch_size, self.msa_length, self.l2_coeff, self.vocab_size
+        )
         sample_size = (targets != self.pad_idx).sum()
 
         batch_size = mrf_weight.size()[0]
-        reg = self._weight_reg_coeff * mrf_weight.norm()
+        reg = weight_reg_coeff * mrf_weight.norm()
         if self.use_bias:
-            reg += self._bias_reg_coeff * self.bias.norm()
+            reg += bias_reg_coeff * self.bias.norm()
 
         return reg * sample_size
 
@@ -177,8 +179,8 @@ class Attention(BaseModel):
         loss = nn.CrossEntropyLoss(ignore_index=self.pad_idx, reduction="sum")(
             logits.view(-1, self.vocab_size), targets.view(-1)
         )
+        loss *= self.num_seqs / logits.size(0)
         loss += self.compute_regularization(targets, mrf_weight)
-        loss = loss / logits.size(0)
         return loss
 
     def compute_mrf_weight(self, attention):

@@ -1,4 +1,5 @@
 from argparse import ArgumentParser, Namespace
+import math
 from typing import Optional
 
 import torch
@@ -21,6 +22,7 @@ class Gremlin(BaseModel):
         num_seqs: int,
         msa_length: int,
         msa_counts: Optional[torch.Tensor] = None,
+        optimizer: str = "gremlin_adam",
         learning_rate: float = 0.5,
         vocab_size: int = 20,
         true_contacts: Optional[torch.Tensor] = None,
@@ -32,6 +34,7 @@ class Gremlin(BaseModel):
         self.l2_coeff = l2_coeff
         self.use_bias = use_bias
         self.pad_idx = pad_idx
+        self.optimizer = optimizer
 
         weight = init_potts_weight(msa_length, vocab_size)
         self.weight = nn.Parameter(weight, True)
@@ -47,9 +50,6 @@ class Gremlin(BaseModel):
             self.bias = nn.Parameter(bias, True)
 
         self.register_buffer("one_hot", torch.eye(vocab_size + 1, vocab_size))
-        self._weight_reg_coeff, self._bias_reg_coeff = gremlin_weight_decay_coeffs(
-            num_seqs, msa_length, l2_coeff, vocab_size
-        )
 
     @torch.no_grad()
     def apply_constraints(self):
@@ -83,23 +83,38 @@ class Gremlin(BaseModel):
         loss = nn.CrossEntropyLoss(ignore_index=self.pad_idx, reduction="sum")(
             logits.view(-1, self.vocab_size), targets.view(-1)
         )
+        loss *= self.num_seqs / logits.size(0)
         loss += self.compute_regularization(targets)
-        loss = loss / logits.size(0)
         return loss
 
     def compute_regularization(self, targets):
         """Compute regularization weights based on the number of targets."""
+        batch_size = targets.size(0)
+
+        weight_reg_coeff, bias_reg_coeff = gremlin_weight_decay_coeffs(
+            batch_size, self.msa_length, self.l2_coeff, self.vocab_size
+        )
+
         sample_size = (targets != self.pad_idx).sum()
-        reg = self._weight_reg_coeff * self.weight.norm()
+        # After multiplying by sample_size, comes to lambda * L * A / 2
+        reg = weight_reg_coeff * self.weight.pow(2).sum()
         if self.use_bias:
-            reg += self._bias_reg_coeff * self.bias.norm()
+            # After multiplying by sample_size, comes to lambda
+            reg += bias_reg_coeff * self.bias.pow(2).sum()
 
         return reg * sample_size
 
     def configure_optimizers(self):
-        optimizer = GremlinAdam(
-            self.parameters(), lr=self.learning_rate, weight_decay=0.0
-        )
+        if self.optimizer == "gremlin_adam":
+            optimizer = GremlinAdam(
+                self.parameters(), lr=self.learning_rate, weight_decay=0.0
+            )
+        elif self.optimizer == "adam":
+
+            self.learning_rate *= math.log(self.num_seqs) / self.msa_length
+            optimizer = torch.optim.Adam(
+                self.parameters(), lr=self.learning_rate, weight_decay=0.0
+            )
         return [optimizer]
 
     @torch.no_grad()
@@ -130,6 +145,7 @@ class Gremlin(BaseModel):
             l2_coeff=args.l2_coeff,
             use_bias=args.use_bias,
             pad_idx=pad_idx,
+            optimizer=args.optimizer,
         )
 
     @staticmethod
@@ -154,5 +170,11 @@ class Gremlin(BaseModel):
             action="store_false",
             help="Use a bias when training GREMLIN.",
             dest="use_bias",
+        )
+        parser.add_argument(
+            "--optimizer",
+            choices=["adam", "gremlin_adam"],
+            default="gremlin_adam",
+            help="Which optimizer to use.",
         )
         return parser

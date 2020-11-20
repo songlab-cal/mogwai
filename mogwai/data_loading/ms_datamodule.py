@@ -6,16 +6,17 @@ import torch
 import pytorch_lightning as pl
 from ..data.ms_dataset import MSDataset, MSStats
 from ..data.repeat_dataset import RepeatDataset
+from ..data.trrosetta_ms_dataset import TRRosetta_MSDataset
 from ..data.pseudolikelihood_dataset import PseudolikelihoodDataset
 from ..data.maskedlm_dataset import MaskedLMDataset
 from ..vocab import FastaVocab
 
 
 class MSDataModule(pl.LightningDataModule):
-    """Creates dataset from A3M or Fasta file.
+    """Creates dataset from A3M, Fasta file or TRRosetta npz file.
 
     Args:
-        data (Union[str, Path]): Path to fasta or a3m file to load sequences.
+        data (Union[str, Path]): Path to fasta, npz, or a3m file to load sequences.
         batch_size (int, optional): Batch size for DataLoader. Default 128.
         num_repeats (int, optional): Number of times to repeat dataset (can speed up
             training for small datasets). Default 1.
@@ -33,14 +34,14 @@ class MSDataModule(pl.LightningDataModule):
         self,
         data: Union[str, Path],
         batch_size: int = 128,
-        num_repeats: int = 1,
+        num_repeats: int = 100,
         task: str = "pseudolikelihood",
         mask_prob: float = 0.15,
         mask_rnd_prob: float = 0.1,
         mask_leave_prob: float = 0.1,
     ):
         super().__init__()
-        self.data = data
+        self.data = Path(data)
         self.batch_size = batch_size
         self.num_repeats = num_repeats
         self.task = task
@@ -49,7 +50,10 @@ class MSDataModule(pl.LightningDataModule):
         self.mask_leave_prob = mask_leave_prob
 
     def setup(self):
-        ms_dataset = MSDataset(self.data)
+        if self.data.suffix == ".npz":
+            ms_dataset = TRRosetta_MSDataset(self.data)
+        else:
+            ms_dataset = MSDataset(self.data)
         dataset = RepeatDataset(ms_dataset, self.num_repeats)
         if self.task == "pseudolikelihood":
             dataset = PseudolikelihoodDataset(dataset)
@@ -105,7 +109,7 @@ class MSDataModule(pl.LightningDataModule):
         RepeatDataset.add_args(parser)
         PseudolikelihoodDataset.add_args(parser)
         MaskedLMDataset.add_args(parser)
-        parser.add_argument("data", type=str, help="Data file to load from.")
+        parser.add_argument("--data", type=str, help="Data file to load from.")
         parser.add_argument(
             "--batch_size", type=int, default=128, help="Batch size for training."
         )
