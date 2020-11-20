@@ -43,6 +43,7 @@ def parse_fasta(
         translate_dict["-"] = None
 
     translate_dict["."] = None
+    translate_dict["*"] = None
     translation = str.maketrans(translate_dict)
 
     def process_record(record: SeqIO.SeqRecord):
