@@ -7,6 +7,7 @@ import pytorch_lightning as pl
 from ..data.msa_dataset import MSADataset, MSAStats
 from ..data.trrosetta_dataset import TRRosetta_MSADataset
 from ..data.repeat_dataset import RepeatDataset
+from ..data.max_steps_dataset import MaxStepsDataset
 from ..data.pseudolikelihood_dataset import PseudolikelihoodDataset
 from ..data.maskedlm_dataset import MaskedLMDataset
 from ..vocab import FastaVocab
@@ -39,6 +40,7 @@ class MSADataModule(pl.LightningDataModule):
         mask_prob: float = 0.15,
         mask_rnd_prob: float = 0.0,
         mask_leave_prob: float = 0.0,
+        max_steps: int = -1,
     ):
         super().__init__()
         self.data = Path(data)
@@ -48,6 +50,7 @@ class MSADataModule(pl.LightningDataModule):
         self.mask_prob = mask_prob
         self.mask_rnd_prob = mask_rnd_prob
         self.mask_leave_prob = mask_leave_prob
+        self.max_steps = max_steps
 
     def setup(self):
         if self.data.suffix == ".a3m":
@@ -56,9 +59,13 @@ class MSADataModule(pl.LightningDataModule):
             msa_dataset = TRRosetta_MSADataset(self.data)
         else:
             raise ValueError(
-                f"Cannot read file of type {self.data.suffix}, must be one of (.a3m, .npz)."
+                f"Cannot read file of type {self.data.suffix}, must be one of (.a3m,"
+                " .npz)."
             )
-        dataset = RepeatDataset(msa_dataset, self.num_repeats)
+        if self.max_steps > 0:
+            dataset = MaxStepsDataset(msa_dataset, self.max_steps, self.batch_size)
+        else:
+            dataset = RepeatDataset(msa_dataset, self.num_repeats)
         if self.task == "pseudolikelihood":
             dataset = PseudolikelihoodDataset(dataset)
         elif self.task == "masked_lm":
@@ -103,6 +110,7 @@ class MSADataModule(pl.LightningDataModule):
             args.mask_prob,
             args.mask_rnd_prob,
             args.mask_leave_prob,
+            max_steps=getattr(args, "max_steps", -1),
         )
 
     @staticmethod
