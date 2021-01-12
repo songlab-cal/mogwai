@@ -25,6 +25,7 @@ class HHBlits:
         evalue (float, optional): E-value cutoff for inclusion in result alignment
             (default=0.001)
         verbose (bool, optional): whether to print information (default=False)
+        hhblits_bin(str, optional): hhfilter binary (def="hhfilter")
     """
 
     def __init__(
@@ -40,9 +41,10 @@ class HHBlits:
         n: int = 2,
         verbose: bool = False,
         evalue: float = 0.001,
+        hhblits_bin: str = "hhblits",
     ):
         command = [
-            "hhblits",
+            f"{hhblits_bin}",
             f"-d {database}",
             f"-mact {mact}",
             f"-maxfilt {maxfilt}",
@@ -106,6 +108,7 @@ class HHFilter:
             * [0,100] use FASTA: columns with fewer than X% gaps are match states
         maxseq (int, optional): max number of input rows (def=65535)
         maxres (int, optional): max number of HMM columns (def=20001)
+        hhfilter_bin(str, optional): hhfilter binary (def="hhfilter")
     """
 
     def __init__(
@@ -120,9 +123,10 @@ class HHFilter:
         M: str = "a2m",
         maxseq: int = 65535,
         maxres: int = 20001,
+        hhfilter_bin: str = "hhfilter",
     ):
         command = [
-            "hhfilter",
+            f"{hhfilter_bin}",
             f"-v {0 if not verbose else 2}",
             f"-id {seqid}",
             f"-diff {diff}",
@@ -164,7 +168,7 @@ def remove_descriptions(fasta_file: PathLike) -> None:
     output_file.rename(input_file)
 
 
-def make_a3m(input_file: str, database: str, keep_intermediates: bool = False) -> None:
+def make_a3m(input_file: str, database: str, keep_intermediates: bool = False, hhblits_bin: str = "hhblits", hhfilter_bin: str = "hhfilter") -> None:
     hhblits = HHBlits(
         database,
         mact=0.35,
@@ -176,10 +180,11 @@ def make_a3m(input_file: str, database: str, keep_intermediates: bool = False) -
         maxmem=64,
         n=4,
         verbose=False,
+        hhblits_bin=hhblits_bin,
     )
 
-    hhfilter_id90cov75 = HHFilter(seqid=90, cov=75, verbose=False)
-    hhfilter_id90cov50 = HHFilter(seqid=90, cov=50, verbose=False)
+    hhfilter_id90cov75 = HHFilter(seqid=90, cov=75, verbose=False, hhfilter_bin=hhfilter_bin)
+    hhfilter_id90cov50 = HHFilter(seqid=90, cov=50, verbose=False, hhfilter_bin=hhfilter_bin)
 
     output_file = Path(input_file).with_suffix(".a3m")
     if output_file.exists():
