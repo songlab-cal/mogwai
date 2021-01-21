@@ -40,6 +40,7 @@ class HHBlits:
         n: int = 2,
         verbose: bool = False,
         evalue: float = 0.001,
+        diff: int = 1000,
     ):
         command = [
             "hhblits",
@@ -51,6 +52,7 @@ class HHBlits:
             f"-realign_max {realign_max}",
             f"-maxmem {maxmem}",
             f"-n {n}",
+            f"-diff {diff}",
             "-o /dev/null",
             f"-v {0 if not verbose else 2}",
         ]
