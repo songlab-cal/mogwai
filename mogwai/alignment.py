@@ -170,7 +170,14 @@ def remove_descriptions(fasta_file: PathLike) -> None:
     output_file.rename(input_file)
 
 
-def make_a3m(input_file: str, database: str, keep_intermediates: bool = False, hhblits_bin: str = "hhblits", hhfilter_bin: str = "hhfilter") -> None:
+def make_a3m(
+    input_file: str,
+    database: str,
+    metagenomic_database: Optional[str] = None,
+    keep_intermediates: bool = False,
+    hhblits_bin: str = "hhblits",
+    hhfilter_bin: str = "hhfilter",
+) -> None:
     hhblits = HHBlits(
         database,
         mact=0.35,
@@ -185,8 +192,12 @@ def make_a3m(input_file: str, database: str, keep_intermediates: bool = False, h
         hhblits_bin=hhblits_bin,
     )
 
-    hhfilter_id90cov75 = HHFilter(seqid=90, cov=75, verbose=False, hhfilter_bin=hhfilter_bin)
-    hhfilter_id90cov50 = HHFilter(seqid=90, cov=50, verbose=False, hhfilter_bin=hhfilter_bin)
+    hhfilter_id90cov75 = HHFilter(
+        seqid=90, cov=75, verbose=False, hhfilter_bin=hhfilter_bin
+    )
+    hhfilter_id90cov50 = HHFilter(
+        seqid=90, cov=50, verbose=False, hhfilter_bin=hhfilter_bin
+    )
 
     output_file = Path(input_file).with_suffix(".a3m")
     if output_file.exists():
@@ -194,8 +205,9 @@ def make_a3m(input_file: str, database: str, keep_intermediates: bool = False, h
 
     prev_a3m = Path(input_file)
     intermediates = []
+    evalues = [1e-80, 1e-60, 1e-40, 1e-20, 1e-10, 1e-8, 1e-6, 1e-4, 1e-3, 1e-1]
 
-    for evalue in [1e-80, 1e-60, 1e-40, 1e-20, 1e-10, 1e-8, 1e-6, 1e-4, 1e-3, 1e-1]:
+    for evalue in evalues:
         # HHblits at particular evalue
         hhblits.evalue = evalue
         out_path = Path(input_file).with_name(f".{Path(input_file).stem}.{evalue}.a3m")
@@ -227,7 +239,54 @@ def make_a3m(input_file: str, database: str, keep_intermediates: bool = False, h
 
         prev_a3m = id90cov50_path
 
-    else:
+    if not output_file.exists() and metagenomic_database is not None:
+        hhblits = HHBlits(
+            metagenomic_database,
+            mact=0.35,
+            maxfilt=100000000,
+            neffmax=20,
+            cpu=20,
+            all_seqs=True,
+            realign_max=10000000,
+            maxmem=64,
+            n=4,
+            verbose=False,
+            hhblits_bin=hhblits_bin,
+        )
+        for evalue in [1e-80, 1e-60, 1e-40, 1e-20, 1e-10, 1e-8, 1e-6, 1e-4, 1e-3, 1e-1]:
+            # HHblits at particular evalue
+            hhblits.evalue = evalue
+            out_path = Path(input_file).with_name(
+                f".{Path(input_file).stem}.{evalue}.metagenomic.a3m"
+            )
+            if not out_path.exists():
+                hhblits.run(prev_a3m, out_path)
+            intermediates.append(out_path)
+
+            # HHFilter id90, cov75
+            id90cov75_path = Path(input_file).with_name(
+                f".{Path(input_file).stem}.{evalue}.metagenomic.id90cov75.a3m"
+            )
+            intermediates.append(id90cov75_path)
+            if not id90cov75_path.exists():
+                hhfilter_id90cov75.run(out_path, id90cov75_path)
+            if count_sequences(id90cov75_path) > 2000:
+                id90cov75_path.rename(output_file)
+                break
+
+            # HHFilter id90, cov50
+            id90cov50_path = Path(input_file).with_name(
+                f".{Path(input_file).stem}.{evalue}.metagenomic.id90cov50.a3m"
+            )
+            intermediates.append(id90cov50_path)
+            if not id90cov50_path.exists():
+                hhfilter_id90cov50.run(out_path, id90cov50_path)
+            if count_sequences(id90cov50_path) > 5000:
+                id90cov50_path.rename(output_file)
+                break
+
+            prev_a3m = id90cov50_path
+    if not output_file.exists():
         id90cov50_path.rename(output_file)
 
     remove_descriptions(output_file)
@@ -247,9 +306,17 @@ def make_a3m_cli():
     parser.add_argument("input_file", type=str, help="Input fasta file.")
     parser.add_argument("database", type=str, help="Path to uniclust database.")
     parser.add_argument(
+        "--metagenomic_database", type=str, default=None, help="Path to BFD database."
+    )
+    parser.add_argument(
         "--keep_intermediates",
         action="store_true",
         help="Don't delete intermediate a3m files.",
     )
     args = parser.parse_args()
-    make_a3m(args.input_file, args.database, args.keep_intermediates)
+    make_a3m(
+        args.input_file,
+        args.database,
+        args.metagenomic_database,
+        args.keep_intermediates,
+    )
