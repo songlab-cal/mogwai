@@ -36,7 +36,7 @@ class MSADataModule(pl.LightningDataModule):
         data: Union[str, Path],
         batch_size: int = 128,
         num_repeats: int = 100,
-        task: str = "pseudolikelihhod",
+        task: str = "pseudolikelihood",
         mask_prob: float = 0.15,
         mask_rnd_prob: float = 0.0,
         mask_leave_prob: float = 0.0,
