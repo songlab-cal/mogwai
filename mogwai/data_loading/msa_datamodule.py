@@ -100,6 +100,16 @@ class MSADataModule(pl.LightningDataModule):
             collate_fn=self.dataset.collater,
         )
 
+    def test_dataloader(self):
+        return torch.utils.data.DataLoader(
+            self.dataset,
+            batch_size=self.batch_size,
+            shuffle=False,
+            pin_memory=True,
+            num_workers=4,
+            collate_fn=self.dataset.collater,
+        )
+
     @classmethod
     def from_args(cls, args: Namespace) -> "MSADataModule":
         return cls(

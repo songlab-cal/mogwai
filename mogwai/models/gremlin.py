@@ -64,7 +64,7 @@ class Gremlin(BaseModel):
         else:
             return src_tokens
 
-    def forward(self, src_tokens, targets=None, src_lengths=None):
+    def forward(self, src_tokens, targets=None, src_lengths=None, compute_energies=False):
         self.apply_constraints()
         inputs = self.maybe_onehot_inputs(src_tokens)
         logits = torch.tensordot(inputs, self.weight, 2)
@@ -75,6 +75,10 @@ class Gremlin(BaseModel):
         if targets is not None:
             loss = self.loss(logits, targets)
             outputs = (loss,) + outputs
+
+        if compute_energies:
+            energies = self.hamiltonian(src_tokens)
+            outputs = (energies,) + outputs
 
         return outputs
 
@@ -116,6 +120,18 @@ class Gremlin(BaseModel):
                 self.parameters(), lr=self.learning_rate, weight_decay=0.0
             )
         return [optimizer]
+
+    def hamiltonian(self, src_tokens):
+        inputs = self.maybe_onehot_inputs(src_tokens)
+        left = torch.tensordot(inputs, self.weight)  # weight is L,A,L,A, so result is N, L, A
+        energies = torch.tensordot(left, inputs, dims=[[1, 2], [1, 2]])  # N, N
+        # but I only care about the diagonal. I could use a for loop but let's see how this goes.
+        energies = energies.diagonal()  # N
+        if self.use_bias:
+            energies += torch.tensordot(inputs, self.bias)  # N
+
+        return energies
+
 
     @torch.no_grad()
     def get_contacts(self):

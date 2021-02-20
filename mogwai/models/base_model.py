@@ -93,6 +93,20 @@ class BaseModel(pl.LightningModule):
             "loss": loss,
         }
 
+    def test_step(self, batch, batch_nb):
+        if isinstance(batch, tuple):
+            loss, _, energies = self.forward(*batch, compute_energies=True)
+        elif isinstance(batch, dict):
+            loss, _, energies = self.forward(**batch, compute_energies=True)
+        else:
+            loss, _, energies = self.forward(batch, compute_energies=True)
+
+        return {
+            "loss": loss,
+            "energies": energies,
+        }
+
+
     @abstractmethod
     def get_contacts(self):
         raise NotImplementedError
