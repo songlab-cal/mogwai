@@ -123,13 +123,9 @@ class Gremlin(BaseModel):
 
     def hamiltonian(self, src_tokens):
         inputs = self.maybe_onehot_inputs(src_tokens)
-        left = torch.tensordot(inputs, self.weight)  # weight is L,A,L,A, so result is N, L, A
-        energies = torch.tensordot(left, inputs, dims=[[1, 2], [1, 2]])  # N, N
-        # but I only care about the diagonal. I could use a for loop but let's see how this goes.
-        energies = energies.diagonal()  # N
+        energies = torch.einsum("nla,lakb,nkb->n", inputs, self.weight, inputs)
         if self.use_bias:
-            energies += torch.tensordot(inputs, self.bias)  # N
-
+            energies += torch.einsum("nla,la->n", inputs, self.bias)
         return energies
 
 
