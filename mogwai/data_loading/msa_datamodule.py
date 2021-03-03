@@ -20,9 +20,9 @@ class MSADataModule(pl.LightningDataModule):
         data (Union[str, Path]): Path to a3m or npz file to load MSA.
         batch_size (int, optional): Batch size for DataLoader. Default 128.
         num_repeats (int, optional): Number of times to repeat dataset (can speed up
-            training for small datasets). Default 1.
+            training for small datasets). Default 100.
         task (str, optional): Which task to train with.
-            Choices: ['pseudolikelihood', 'masked_lm']. Default: 'pseudolikelihhod'.
+            Choices: ['pseudolikelihood', 'masked_lm']. Default: 'pseudolikelihood'.
         mask_prob (float, optional): Probability of masking a token when using
             'masked_lm' task. Default: 0.15.
         mask_rnd_prob (float, optional): Probability of using a random token when using
