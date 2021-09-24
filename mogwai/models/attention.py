@@ -4,7 +4,6 @@ import math
 
 import torch
 import torch.nn as nn
-from apex.optimizers import FusedLAMB
 
 from .base_model import BaseModel
 from ..utils import symmetrize_matrix_, symmetrize_potts
@@ -141,6 +140,7 @@ class Attention(BaseModel):
                 self.parameters(), lr=self.learning_rate, weight_decay=0.0
             )
         elif self.optimizer == "lamb":
+            from apex.optimizers import FusedLAMB
             optimizer = FusedLAMB(
                 self.parameters(),
                 lr=self.learning_rate,
