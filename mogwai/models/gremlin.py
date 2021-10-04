@@ -199,11 +199,12 @@ class Gremlin(BaseModel):
         weight = state["weight"]
         x_ind, y_ind = np.triu_indices(weight.size(0), 1)
         state["weight"] = weight[x_ind, :, y_ind, :]
-        buffer = io.BytesIO
+        buffer = io.BytesIO()
         torch.save(state, buffer)
         buffer.seek(0)
+        data = buffer.read()
         with gzip.open(path, "wb") as f:
-            f.write(buffer)
+            f.write(data)
 
     @classmethod
     def load_compressed_state(cls, path) -> Dict[str, torch.Tensor]:
