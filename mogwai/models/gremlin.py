@@ -1,9 +1,12 @@
 from argparse import ArgumentParser, Namespace
 import math
-from typing import Optional
+from typing import Optional, Dict
+import gzip
+import io
 
 import torch
 import torch.nn as nn
+import numpy as np
 
 from .base_model import BaseModel
 from ..optim import GremlinAdam
@@ -40,7 +43,7 @@ class Gremlin(BaseModel):
         self.weight = nn.Parameter(weight, True)
 
         mask = init_pseudolik_mask(msa_length)
-        self.register_buffer("diag_mask", mask)
+        self.register_buffer("diag_mask", mask, persistent=False)
 
         if self.use_bias:
             if msa_counts is not None:
@@ -49,7 +52,7 @@ class Gremlin(BaseModel):
                 bias = torch.zeros(msa_length, vocab_size)
             self.bias = nn.Parameter(bias, True)
 
-        self.register_buffer("one_hot", torch.eye(vocab_size + 1, vocab_size))
+        self.register_buffer("one_hot", torch.eye(vocab_size + 1, vocab_size), persistent=False)
 
     @torch.no_grad()
     def apply_constraints(self):
@@ -178,3 +181,50 @@ class Gremlin(BaseModel):
             help="Which optimizer to use.",
         )
         return parser
+
+    def save_compressed_state(self, path):
+        """ Saves the GREMLIN state dict in a highly compressed manner (50x reduction).
+
+        First, note that GREMLIN parameters are symmetric, and the diagonal is always
+        zero. Saving only the upper half gets us a 2x reduction in space. Next, instead
+        of saving weights in full precision, we can save in half precision. This *is* a
+        lossy conversion, however in practice it is unlikely to matter. Converting to
+        half precision gains us another 2x reduction in space. Finally, the data
+        compress well with gzip, netting a ~12.5x reduction in space.
+
+        Note that these transformations must be reversed when loading the data. See
+        `load_compressed_state`.
+        """
+        state = {key: tensor.half() for key, tensor in self.state_dict().items()}
+        weight = state["weight"]
+        x_ind, y_ind = np.triu_indices(weight.size(0), 1)
+        state["weight"] = weight[x_ind, :, y_ind, :]
+        buffer = io.BytesIO
+        torch.save(state, buffer)
+        buffer.seek(0)
+        with gzip.open(path, "wb") as f:
+            f.write(buffer)
+
+    @classmethod
+    def load_compressed_state(cls, path) -> Dict[str, torch.Tensor]:
+        """ Reverses the transformations in `save_compressed_state`. See for details.
+        """
+        with gzip.open(path, "rb") as f:
+            state = torch.load(f, map_location="cpu")
+        weight = state["weight"]
+        vocab_size = weight.size(1)
+
+        # The actual sequence length is not saved, however we know that the number of
+        # upper-diag values is N = (L * (L - 1)) / 2. Therefore L - 1 < sqrt(2N) < L.
+        # So we can find L = ceil(sqrt(2N))
+        seqlen = math.ceil(math.sqrt(2 * weight.size(0)))
+
+        full_weight = torch.zeros(
+            seqlen, vocab_size, seqlen, vocab_size, dtype=weight.dtype
+        )
+        x_ind, y_ind = np.triu_indices(seqlen, 1)
+        full_weight[x_ind, :, y_ind, :] = weight
+        full_weight.add_(full_weight.permute(2, 3, 0, 1).clone())
+        state["weight"] = full_weight
+        state = {key: tensor.float() for key, tensor in state.items()}
+        return state

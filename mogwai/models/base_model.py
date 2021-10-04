@@ -36,12 +36,12 @@ class BaseModel(pl.LightningModule):
         self.learning_rate = learning_rate
 
         if true_contacts is not None:
-            self.register_buffer("_true_contacts", true_contacts)
+            self.register_buffer("_true_contacts", true_contacts, persistent=False)
             self.has_true_contacts = True
         else:
             self.has_true_contacts = False
 
-        self.register_buffer("_max_auc", torch.tensor(0.0))
+        self.register_buffer("_max_auc", torch.tensor(0.0), persistent=False)
 
     def training_step(self, batch, batch_nb):
         if isinstance(batch, tuple):
