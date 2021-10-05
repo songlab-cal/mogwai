@@ -3,42 +3,8 @@ from typing import List
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 from scipy.stats import entropy
-
-
-def precision_at_cutoff(
-    pred: torch.Tensor,
-    meas: torch.Tensor,
-    thresh: float = 0.01,
-    superdiag: int = 6,
-    cutoff: int = 1,
-):
-    """Computes precision for top L/k contacts.
-
-    Args:
-        pred (tensor): Predicted contact scores or probabilities.
-        meas (tensor): Binary matrix of true contacts.
-        thresh (float, optional): Threshold at which to call a predicted contact.
-        superdiag (int, optional): Ignore all true and predicted contacts from diag to superdiag.
-        cutoff (int, optional): Only compute precision of top L/cutoff predictions.
-    """
-
-    # Subset everything above superdiag
-    eval_idx = np.triu_indices_from(meas, superdiag)
-    pred_, meas_ = pred[eval_idx], meas[eval_idx]
-
-    # Sort by model confidence
-    sort_idx = pred_.argsort(descending=True)
-
-    # Extract top predictions and calculate
-    len_cutoff = (len(meas) / torch.tensor(cutoff)).int()
-    preds = meas_[sort_idx][:len_cutoff]
-
-    num_positives = (meas_[sort_idx][:len_cutoff] > thresh).sum().float()
-    num_preds = len(preds)
-    precision = num_positives / num_preds
-
-    return precision
 
 
 def precision_at_cutoff(
@@ -120,11 +86,15 @@ def precisions_in_range(
     predictions_upper = predictions[:, x_ind, y_ind]
     targets_upper = targets[:, x_ind, y_ind]
 
-    indices = predictions_upper.topk(
-        dim=-1, k=seqlen, sorted=True, largest=True
-    ).indices
+    indices = predictions_upper.argsort(dim=-1, descending=True)[:, :seqlen]
+    # indices = predictions_upper.topk(
+        # dim=-1, k=seqlen, sorted=True, largest=True
+    # ).indices
 
     topk_targets = targets_upper[torch.arange(batch_size), indices] > 0.01
+    n_targets = topk_targets.size(1)
+    if n_targets < seqlen:
+        topk_targets = F.pad(topk_targets, [0, seqlen - n_targets])
 
     cumulative_dist = topk_targets.type_as(predictions).cumsum(-1)
 
