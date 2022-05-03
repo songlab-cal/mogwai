@@ -1,6 +1,6 @@
 from argparse import ArgumentParser, Namespace
 
-from typing import Union
+from typing import Union, Optional
 from pathlib import Path
 import torch
 import pytorch_lightning as pl
@@ -52,7 +52,7 @@ class MSADataModule(pl.LightningDataModule):
         self.mask_leave_prob = mask_leave_prob
         self.max_steps = max_steps
 
-    def setup(self):
+    def setup(self, stage: Optional[str] = None):
         if self.data.suffix == ".a3m":
             msa_dataset = MSADataset(self.data)
         elif self.data.suffix == ".npz":

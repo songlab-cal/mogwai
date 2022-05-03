@@ -1,6 +1,6 @@
 from argparse import ArgumentParser, Namespace
 
-from typing import Union
+from typing import Union, Optional
 from pathlib import Path
 import torch
 import pytorch_lightning as pl
@@ -49,7 +49,7 @@ class MSDataModule(pl.LightningDataModule):
         self.mask_rnd_prob = mask_rnd_prob
         self.mask_leave_prob = mask_leave_prob
 
-    def setup(self):
+    def setup(self, stage: Optional[str] = None):
         if self.data.suffix == ".npz":
             ms_dataset = TRRosetta_MSDataset(self.data)
         else:
