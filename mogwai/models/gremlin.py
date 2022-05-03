@@ -121,7 +121,9 @@ class Gremlin(BaseModel):
             )
         return [optimizer]
 
+    @torch.no_grad()
     def hamiltonian(self, src_tokens):
+        self.apply_constraints()
         inputs = self.maybe_onehot_inputs(src_tokens)
         energies = torch.einsum("nla,lakb,nkb->n", inputs, self.weight, inputs)
         if self.use_bias:
