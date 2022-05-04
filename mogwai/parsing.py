@@ -1,4 +1,4 @@
-from typing import Union, List, Tuple, Dict, Optional
+from typing import Union, List, Tuple, Dict, Optional, Any
 
 from Bio import SeqIO
 from biotite.structure.io.pdb import PDBFile
@@ -78,12 +78,11 @@ def get_seqref(x: str) -> Tuple[List[int], List[int], List[int]]:
     return np.array(seq), np.array(ref), np.array(aligned_seq)
 
 
-def load_a3m_msa(filename):
+def load_a3m_msa(filename) -> Tuple[Any, Any, Any, str]:
     """
     Given A3M file (from hhblits)
-    return MSA (aligned), MS (unaligned) and ALN (alignment)
+    return Tuple of (MSA (aligned), MS (unaligned), ALN (alignment), reference sequence)
     """
-
     names, seqs = parse_fasta(filename)
 
     reference = seqs[0]
@@ -103,6 +102,7 @@ def load_a3m_msa(filename):
         ms[n] = np.pad(ms[n], [0, pad], constant_values=-1)
         aln[n] = np.pad(aln[n], [0, pad], constant_values=-1)
 
+    # TODO nthomas - figure out why this is causing errors in test_parsing.py
     return one_hot(msa), one_hot(ms), one_hot(aln), reference
 
 

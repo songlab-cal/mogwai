@@ -3,21 +3,22 @@ import unittest
 
 import pytorch_lightning as pl
 
-from mogwai.data_loading import A3M_MSADataModule, parse_cf
-from mogwai.models import GremlinPseudolikelihood
+from mogwai.data_loading import MSADataModule
+from mogwai.parsing import contacts_from_cf
+from mogwai.models import Gremlin
 
 
 class TestGremlinPLPerformance(unittest.TestCase):
     def setUp(self):
         npz_path = "data/test/4rb6Y/4rb6Y.i90c75.a3m"
-        self.dm = A3M_MSADataModule(npz_path, batch_size=4096)
+        self.dm = MSADataModule(npz_path, batch_size=4096)
         self.dm.setup()
 
-        true_contacts = parse_cf("data/test/4rb6Y/4rb6Y.cf")
+        true_contacts = contacts_from_cf("data/test/4rb6Y/4rb6Y.cf")
 
-        n, l, _ = self.dm.dims
-        self.model = GremlinPseudolikelihood(
-            n, l, self.dm.msa_counts, true_contacts=torch.tensor(true_contacts)
+        n, l, msa_counts = self.dm.get_stats()
+        self.model = Gremlin(
+            n, l, msa_counts, true_contacts=torch.tensor(true_contacts)
         )
         self.trainer = pl.Trainer(
             min_steps=50,

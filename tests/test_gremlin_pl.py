@@ -3,8 +3,8 @@ import numpy as np
 import torch
 import unittest
 
-from mogwai.data_loading import one_hot
-from mogwai.models import GremlinPseudolikelihood
+from mogwai.parsing import one_hot
+from mogwai.models import Gremlin
 
 
 class TestGremlinPL(unittest.TestCase):
@@ -15,11 +15,11 @@ class TestGremlinPL(unittest.TestCase):
         L = 20
         A = 8
         msa = torch.randint(0, A, [N, L])
-        msa = torch.FloatTensor(one_hot(msa.numpy()))
+        msa = torch.FloatTensor(one_hot(msa.numpy(), cat=A))
         msa_counts = msa.sum(0)
 
         self.msa = msa
-        self.model = GremlinPseudolikelihood(N, L, msa_counts, vocab_size=A)
+        self.model = Gremlin(N, L, msa_counts, vocab_size=A)
 
         # Need nonzero weights but don't want to take a grad for this test
         wt = self.model.weight.data
@@ -34,7 +34,7 @@ class TestGremlinPL(unittest.TestCase):
 
     def test_forward_shape(self):
         batch = self.msa[:64]
-        loss, logits = self.model(batch)
+        logits = self.model(batch)[0]
         self.assertTupleEqual(logits.shape, (64, 20, 8))
 
     def onehot_vector(self, idx: int):
@@ -52,34 +52,12 @@ class TestGremlinPL(unittest.TestCase):
         seq_pos = 0
         for i in range(self.A):
             example[seq_pos] = self.onehot_vector(i)
-            _, logits = self.model(example.unsqueeze(0))
+            logits = self.model(example.unsqueeze(0))[0]
             logits_list.append(logits[0, seq_pos])
         all_pairs = itertools.combinations(logits_list, 2)
         for x, y in all_pairs:
             np.testing.assert_array_almost_equal(x.numpy(), y.numpy())
 
-
-class TestGremlinPLGrad(unittest.TestCase):
-    def setUp(self):
-        torch.manual_seed(0)
-
-        N = 100
-        L = 20
-        A = 8
-        msa = torch.randint(0, A, [N, L])
-        msa = torch.FloatTensor(one_hot(msa.numpy()))
-        msa_counts = msa.sum(0)
-
-        self.msa = msa
-        self.model = GremlinPseudolikelihood(N, L, msa_counts, vocab_size=A)
-
-    def test_gradient(self):
-        # Tests that backward runs.
-        batch = self.msa[:64]
-        loss, _ = self.model(batch)
-        loss.backward()
-        # TODO: Presumably there's a less stupid approach
-        self.assertTrue(True)
 
 
 if __name__ == "__main__":
