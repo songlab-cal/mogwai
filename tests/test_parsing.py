@@ -2,7 +2,7 @@ from pathlib import Path
 import numpy as np
 import unittest
 
-from mogwai.data_loading import one_hot, load_a3m_msa, parse_cf
+from mogwai.parsing import one_hot, load_a3m_msa, contacts_from_cf
 
 
 class TestOneHot(unittest.TestCase):
@@ -79,7 +79,7 @@ class TestCfLoading(unittest.TestCase):
             raise FileNotFoundError(
                 "Please download 4rb6Y using scripts/download_example.sh to run tests."
             )
-        self.contacts = parse_cf(self.path)
+        self.contacts = contacts_from_cf(self.path)
 
     def test_contact_shape(self):
         shape = self.contacts.shape
